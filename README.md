@@ -1,6 +1,6 @@
 # MA932_Flocks
 
-![](gifs/homepage.gif)
+![](43.141592653589793.gif)
 
 ## To do 
 
