@@ -15,14 +15,20 @@ with open("/home/mbowditch/Documents/MA932/blender_scripts/positions.csv", 'r') 
 
 for pos in all_positions:
     f = 1
-    bpy.ops.mesh.primitive_ico_sphere_add(radius=0.5, location=pos[0])
+    bpy.ops.mesh.primitive_cone_add(radius1=0.5, location=pos[0])
 
 col = bpy.data.collections[1].objects
 for i,x in enumerate(col):
     f = 1
-    for p in all_positions[i]:
+    for j,p in enumerate(all_positions[i]):
+        if j >= 1:
+            x.rotation_euler.x = p[0] - all_positions[i][j-1][0]
+            x.rotation_euler.y = p[1] - all_positions[i][j-1][1]
+            x.rotation_euler.z = p[2] - all_positions[i][j-1][2]
+            
         x.location = p
         x.keyframe_insert(data_path = "location", frame=f)
+        x.keyframe_insert(data_path = "rotation_euler", frame=f)
         f += 5
 
 # For each 'bird' create an object in collection
