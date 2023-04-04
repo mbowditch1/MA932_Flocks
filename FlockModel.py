@@ -6,7 +6,7 @@ import os
 import csv
 
 class Model:
-    def __init__(self, dt = 1, density = 1, maxtime = 100, radius = 1, L = 10, noise = 0.05, phenotype = None, volume = 0.1, angle = 2*np.pi):
+    def __init__(self, dt = 1, density = 1, maxtime = 100, radius = 1, L = 10, noise = 0.05, phenotype = None, volume = 0.1, angle = 2*np.pi, predators=1):
         self.dt = dt
         self.density = density
         self.num_agents = int(L**2 * density)
@@ -53,7 +53,9 @@ class Model:
             else:
                 p = {"Current":1 + self.dt, "Align" : np.random.uniform(0,1), "Centre":  np.random.uniform(-1,1)}
 
-            self.agents.append(Agent(pos = x, vel = v, parameters = p))
+            self.agents.append(Prey(pos = x, vel = v, parameters = p))
+
+        self.agents.append(Predator(pos = x, vel = v, parameters = p))
 
     def run(self):
         while self.curr_time < self.maxtime:
@@ -65,35 +67,7 @@ class Model:
         velocities = [x.vel[-1] for x in self.agents]
 
         for a in self.agents:
-
-            # across boundary conditions
-
-            nearby_pos = []
-            nearby_vel = []
-
-            for i, x in enumerate(positions):
-
-                vector = np.remainder(x - a.pos[-1] + self.L/2, self.L) - self.L/2
-
-                if np.linalg.norm(vector) < self.r:
-
-                    dot = np.dot(a.vel[-1], vector)
-                    norms = np.linalg.norm(a.vel[-1]) * np.linalg.norm(vector)
-
-                    if not norms:
-                        nearby_pos.append(np.array(vector))
-                        nearby_vel.append(velocities[i])
-
-                    elif dot/norms > self.cone:
-                            nearby_pos.append(np.array(vector))
-                            nearby_vel.append(velocities[i])
-
-            #nearby_pos = [x for x in positions if math.dist(x,a.pos[-1])<self.r]
-
-            #nearby_vel = [v for i,v in enumerate(velocities) if math.dist(positions[i],a.pos[-1])< self.r]
-
-            a.update_pos(self.dt, nearby_pos,nearby_vel)
-
+            a.update_pos(self.dt, positions,velocities,self.L,self.r,self.cone)
             a.pos[-1] = a.pos[-1] % self.L # add other BC later
 
     def quiver_plot(self,i = -1, animate = False, name = None):
@@ -151,14 +125,53 @@ class Model:
             writer = csv.writer(f)
             writer.writerows(positions)
 
+
 class Agent:
-    def __init__(self, pos = [0,0], vel = [1,1], noise = 0.1, parameters = {"Current": 1, "Align" : 0, "Centre": 0}):
+    def __init__(self, pos = np.array([0,0]), vel = [1,1], noise = 0.1, parameters = {"Current": 1, "Align" : 0, "Centre": 0}):
         self.pos = [pos]
-        self.vel = [vel]
+        self.vel = [vel] # do scalar velocity
         self.noise = noise
         self.parameters = parameters
 
-    def update_pos(self,dt, nearby_pos, nearby_vel):
+class Predator(Agent):
+    def __init__(self, pos = np.array([0,0]), vel = [1,1], noise = 0.1, parameters = {"Current": 1, "Align" : 0, "Centre": 0}):
+        super().__init__(pos, vel, noise, parameters)
+        self.type = "Predator"
+
+    def update_pos(self,dt,positions,velocities,L,r,cone):
+        # Predator moves towards nearest prey
+        positions = [p for p in positions if not np.array_equal(p,self.pos[-1])]
+        nearest_pos = positions[np.argmin([np.linalg.norm(np.remainder(x - self.pos[-1] + L/2, L) - L/2) for x in positions])]
+        new_vel = np.remainder(nearest_pos - self.pos[-1] + L/2, L) - L/2
+        self.vel.append(new_vel/np.linalg.norm(new_vel))
+        self.pos.append(self.pos[-1] + dt*self.vel[-1])
+
+class Prey(Agent):
+    def __init__(self, pos = np.array([0,0]), vel = [1,1], noise = 0.1, parameters = {"Current": 1, "Align" : 0, "Centre": 0}):
+        super().__init__(pos, vel, noise, parameters)
+        self.type = "Prey"
+
+    def update_pos(self,dt,positions,velocities,L,r,cone):
+        # across boundary conditions
+        nearby_pos = []
+        nearby_vel = []
+
+        for i, x in enumerate(positions):
+
+            vector = np.remainder(x - self.pos[-1] + L/2, L) - L/2
+
+            if np.linalg.norm(vector) < r:
+
+                dot = np.dot(self.vel[-1], vector)
+                norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
+
+                if not norms:
+                    nearby_pos.append(np.array(vector))
+                    nearby_vel.append(velocities[i])
+
+                elif dot/norms > cone:
+                        nearby_pos.append(np.array(vector))
+                        nearby_vel.append(velocities[i])
 
         current = self.vel[-1]
 
