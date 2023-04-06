@@ -4,6 +4,10 @@ import math
 import imageio
 import os
 import csv
+import bisect
+
+def periodic_dist(L,x,y):
+    return np.remainder(x - y + L/2, L) - L/2
 
 class Model:
     def __init__(self, dt = 1, density = 1, maxtime = 100, radius = 1, L = 10, noise = 0.05, phenotype = None, volume = 0.1, angle = 2*np.pi, predators=1):
@@ -13,6 +17,7 @@ class Model:
         self.maxtime = maxtime
         self.r = radius # sam fix, put as an input of agents
         self.curr_time = 0
+        self.t = [self.curr_time]
         self.L = L
         self.agents = []
         self.volume = volume
@@ -61,6 +66,7 @@ class Model:
         while self.curr_time < self.maxtime:
             self.step()
             self.curr_time += self.dt
+            self.t.append(self.curr_time)
 
     def step(self):
         positions = [x.pos[-1] for x in self.agents]
@@ -69,6 +75,26 @@ class Model:
         for a in self.agents:
             a.update_pos(self.dt, positions,velocities,self.L,self.r,self.cone)
             a.pos[-1] = a.pos[-1] % self.L # add other BC later
+
+    def vel_fluc_plot(self,i=-1):
+        positions = [x.pos[i] for x in self.agents if x.type != "Predator"]
+        prey_agents_vel = [a.vel[i] for a in self.agents if a.type != "Predator"]
+        avg_vel = np.mean(prey_agents_vel,axis=0)
+        denom = math.sqrt(sum([np.linalg.norm(v-avg_vel)**2 for v in prey_agents_vel])/len(prey_agents_vel))
+        dim_vel = [(v-avg_vel)/denom for v in prey_agents_vel]
+
+        print(avg_vel,prey_agents_vel[0],dim_vel[0])
+
+        xs = [x[0] for x in positions]
+        ys = [y[1] for y in positions]
+        us = [u[0] for u in dim_vel]
+        vs = [v[1] for v in dim_vel]
+
+        plt.figure()
+        plt.quiver(xs,ys,us,vs)
+        plt.xlim([0,self.L])
+        plt.ylim([0,self.L])
+        plt.show()
 
     def quiver_plot(self,i = -1, animate = False, name = None):
         positions = [x.pos[i] for x in self.agents]
@@ -90,6 +116,72 @@ class Model:
             plt.close()
         else:
             plt.show()
+
+    def order_plot(self):
+        orders = [self.ord(i) for i in range(len(self.t))]
+        plt.figure()
+        plt.plot(self.t,orders)
+        plt.xlabel("Time")
+        plt.ylabel("Order")
+        plt.show()
+
+    def ord(self,i=-1):
+        velocities = [x.vel[i] for x in self.agents if x.type != "Predator"]
+        return np.linalg.norm(np.mean(velocities,axis=0))
+
+    def susceptibility(self):
+        chi = []
+        for i in range(len(self.t)):
+            bins,correlation = corr(i=i)
+
+    def plot_corr(self,i=-1):
+        bins,correlation = self.corr(i=i)
+        plt.figure()
+        plt.plot(bins, correlation)
+        plt.show()
+
+    def corr(self,i=-1,num_bins=20):
+        prey_agents = [a for a in self.agents if a.type != "Predator"]
+        N = len(prey_agents)
+        distances = np.zeros((N,N))
+        for j in range(N):
+            for k in range(j,N):
+                distances[j][k] = np.linalg.norm(periodic_dist(self.L,prey_agents[j].pos[i],prey_agents[k].pos[i]))
+                distances[k][j] = distances[j][k]
+
+        max_r = np.max(distances)
+        bins = np.linspace(0,max_r,num_bins+1)
+        bin_matrix = np.zeros((N,N))
+        for j in range(N):
+            for k in range(j,N):
+                bin_matrix[j][k] = int(np.searchsorted(bins,distances[j][k]))
+                bin_matrix[k][j] = bin_matrix[j][k]
+
+        correlation = np.zeros((num_bins+1))
+
+        prey_agents_vel = [a.vel[i] for a in prey_agents]
+        avg_vel = np.mean(prey_agents_vel,axis=0    )
+        denom = math.sqrt(sum([np.linalg.norm(v-avg_vel)**2 for v in prey_agents_vel])/len(prey_agents_vel))
+        dim_vel = [(v-avg_vel)/denom for v in prey_agents_vel]
+
+        # loop through bins
+        for b in range(num_bins+1):
+            dot_prod = 0
+            # dot product everything in bin
+            indices = np.where(bin_matrix == b)
+            if len(indices[0])>0:
+                counter = 0
+                for j,x in enumerate(indices[0]):
+                    dot_prod += np.dot(dim_vel[x],dim_vel[indices[1][j]])
+                    counter += 1
+
+                dot_prod = dot_prod / counter
+            else:
+                print("No agents in bin")
+
+            correlation[b] = dot_prod
+
+        return bins, correlation
 
     def animate(self, name = "Gif"):
         entries = os.listdir('data/')
@@ -158,7 +250,7 @@ class Prey(Agent):
 
         for i, x in enumerate(positions):
 
-            vector = np.remainder(x - self.pos[-1] + L/2, L) - L/2
+            vector = periodic_dist(L,x,self.pos[-1])
 
             if np.linalg.norm(vector) < r:
 
