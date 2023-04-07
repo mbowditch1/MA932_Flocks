@@ -5,45 +5,34 @@ import imageio
 import os
 import csv
 import bisect
+import FlockPlot as FP
 
 def periodic_dist(L,x,y):
     return np.remainder(x - y + L/2, L) - L/2
 
-def do_quiver(positions, velocities,L, type = "Prey"):
-    xs = [x[0] for x in positions]
-    ys = [y[1] for y in positions]
-    us = [u[0] for u in velocities]
-    vs = [v[1] for v in velocities]
-    if type == "Predator":
-        plt.quiver(xs,ys,us,vs,color='r')
-    else:
-        plt.quiver(xs,ys,us,vs)
-    plt.xlim([0,L])
-    plt.ylim([0,L])
-
 class Model:
     def __init__(self, dt = 1, density = 1, maxtime = 100, radius = 1, L = 10, noise = 0.05, phenotype = [0,1,0], volume = 0.1, angle = 2*np.pi, predators=1):
-        self.dt = dt
-        self.density = density
-        self.num_agents = int(L**2 * density)
-        self.maxtime = maxtime
-        self.r = radius # sam fix, put as an input of agents
-        self.curr_time = 0
-        self.t = [self.curr_time]
-        self.L = L
+        self.dt, self.curr_time, self.maxtime, self.t = dt, 0, maxtime, [0]
+        self.density, self.L = density, L
+        self.num_prey, self.num_predators = int(L**2 * density), predators
+        self.r, self.volume, self.cone = radius, volum, np.cos(angle/2) # sam fix, put as an input of agents
         self.agents = []
-        self.volume = volume
-        self.cone = np.cos(angle/2)
 
-        for i in range(self.num_agents):
+        for i in range(self.num_prey):
 
+            # Random initial position and normalised velocity
             x = np.random.uniform(0,L,2)
             v = np.random.uniform(-1/2,1/2,2)
             v = v/np.linalg.norm(v)
 
             self.agents.append(Prey(pos = x, vel = v, parameters = phenotype))
 
-        self.agents.append(Predator(pos = x, vel = v, parameters = phenotype))
+        for i in range(self.num_predators):
+
+            x = np.random.uniform(0,L,2)
+            v = np.random.uniform(-1/2,1/2,2)
+            v = v/np.linalg.norm(v)
+            self.agents.append(Predator(pos = x, vel = v, parameters = phenotype))
 
     def run(self):
         while self.curr_time < self.maxtime:
@@ -60,126 +49,35 @@ class Model:
             a.update_pos(self.dt, positions,velocities,self.L,self.r,self.cone,predator_pos)
             a.pos[-1] = a.pos[-1] % self.L # add other BC later
 
-    def vel_fluc_plot(self,i=-1):
-        positions = [x.pos[i] for x in self.agents if x.type != "Predator"]
-        prey_agents_vel = [a.vel[i] for a in self.agents if a.type != "Predator"]
-        avg_vel = np.mean(prey_agents_vel,axis=0)
-        denom = math.sqrt(sum([np.linalg.norm(v-avg_vel)**2 for v in prey_agents_vel])/len(prey_agents_vel))
-        dim_vel = [(v-avg_vel)/denom for v in prey_agents_vel]
-
-        do_quiver(positions, dim_vel, self.L)
-        plt.show()
-
+    # PLOTTING
     def quiver_plot(self,i = -1, animate = False, name = None):
-        prey_positions = [x.pos[i] for x in self.agents if x.type != "Predator"]
-        prey_velocities = [x.vel[i] for x in self.agents if x.type != "Predator"]
-        predator_positions = [x.pos[i] for x in self.agents if x.type == "Predator"]
-        predator_velocities = [x.vel[i] for x in self.agents if x.type == "Predator"]
-        plt.figure()
-        do_quiver(prey_positions, prey_velocities,self.L,"Prey")
-        do_quiver(predator_positions, predator_velocities, self.L, "Predator")
-        if name:
-            string = name + r", $\rho$ =" + str(self.density) + ", R =" + str(self.r)
-            plt.title(string)
-        if animate:
-            plt.savefig('data/' + str(i)+'.png')
+        FP.quiver_plot(i,self.L,self.agents, animate, name, self.density)
 
-            plt.close()
-        else:
-            plt.show()
+    def vel_fluc_plot(self,i=-1):
+        FP.vel_fluc_plot(i,self.L,self.agents)
 
     def order_plot(self):
-        orders = [self.ord(i) for i in range(len(self.t))]
-        plt.figure()
-        plt.plot(self.t,orders)
-        plt.xlabel("Time")
-        plt.ylabel("Order")
-        plt.show()
+        FP.order_plot(self.agents,self.t)
 
+    def corr_plot(self,i=-1,num_bins=20):
+        FP.corr_plot(i,self.L,self.agents,num_bins)
+
+    def animate(self,name='Gif'):
+        FP.animate(self.agents, self.L,name)
+
+    def sus_plot(self,num_bins=20):
+        FP.sus_plot(self.L,self.agents,self.t,num_bins)
+
+    # EXTRA FUNS
     def ord(self,i=-1):
-        velocities = [x.vel[i] for x in self.agents if x.type != "Predator"]
-        return np.linalg.norm(np.mean(velocities,axis=0))
-
-    def susceptibility(self):
-        chis = []
-        for i in range(len(self.t)):
-            bins,correlation = self.corr(i=i)
-            j = 0; chi =0;
-            while correlation[j] > 0:
-                chi += correlation[j]
-                j += 1
-            chis.append(chi)
-        return chis
-
-    def plot_corr(self,i=-1):
-        bins,correlation = self.corr(i=i)
-        plt.figure()
-        plt.plot(bins, correlation)
-        plt.show()
+        return FP.ord(self.agents,i)
 
     def corr(self,i=-1,num_bins=20):
-        prey_agents = [a for a in self.agents if a.type != "Predator"]
-        N = len(prey_agents)
-        distances = np.zeros((N,N))
-        for j in range(N):
-            for k in range(j,N):
-                distances[j][k] = np.linalg.norm(periodic_dist(self.L,prey_agents[j].pos[i],prey_agents[k].pos[i]))
-                distances[k][j] = distances[j][k]
+        return FP.corr(i,self.L,self.agents,num_bins)
 
-        max_r = np.max(distances)
-        bins = np.linspace(0,max_r,num_bins+1)
-        bin_matrix = np.zeros((N,N))
-        for j in range(N):
-            for k in range(j,N):
-                bin_matrix[j][k] = int(np.searchsorted(bins,distances[j][k]))
-                bin_matrix[k][j] = bin_matrix[j][k]
+    def susceptibility(self,num_bins=20):
+        return FP.susceptibility(self.L,self.agents,self.t,num_bins)
 
-        correlation = np.zeros((num_bins+1))
-
-        prey_agents_vel = [a.vel[i] for a in prey_agents]
-        avg_vel = np.mean(prey_agents_vel,axis=0    )
-        denom = math.sqrt(sum([np.linalg.norm(v-avg_vel)**2 for v in prey_agents_vel])/len(prey_agents_vel))
-        dim_vel = [(v-avg_vel)/denom for v in prey_agents_vel]
-
-        # loop through bins
-        for b in range(num_bins+1):
-            dot_prod = 0
-            # dot product everything in bin
-            indices = np.where(bin_matrix == b)
-            if len(indices[0])>0:
-                counter = 0
-                for j,x in enumerate(indices[0]):
-                    dot_prod += np.dot(dim_vel[x],dim_vel[indices[1][j]])
-                    counter += 1
-
-                dot_prod = dot_prod / counter
-            else:
-                print("No agents in bin")
-
-            correlation[b] = dot_prod
-
-        return bins, correlation
-
-    def animate(self, name = "Gif"):
-        entries = os.listdir('data/')
-        for filename in entries:
-            os.remove('data/' + filename)
-        for i in range(len(self.agents[0].pos)):
-            self.quiver_plot(i, True, name)
-        entries = os.listdir('data/')
-        entries = [int(x[:-4]) for x in entries]
-        entries.sort()
-        with imageio.get_writer(name + ".gif", mode='I') as writer:
-            for i, filename in enumerate(entries):
-                if i == 0:
-                    for j in range(4):
-                        image = imageio.imread('data/' + str(filename) + '.png')
-                        writer.append_data(image)
-                image = imageio.imread('data/' + str(filename) + '.png')
-                writer.append_data(image)
-
-    def order(self):
-        return
 
     def blender_csv(self):
         # Create CSV with positions of each agent
