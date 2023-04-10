@@ -15,7 +15,7 @@ class Model:
         self.dt, self.curr_time, self.maxtime, self.t = dt, 0, maxtime, [0]
         self.density, self.L = density, L
         self.num_prey, self.num_predators = int(L**2 * density), predators
-        self.r, self.volume, self.cone = radius, volum, np.cos(angle/2) # sam fix, put as an input of agents
+        self.r, self.volume, self.cone = radius, volume, np.cos(angle/2) # sam fix, put as an input of agents
         self.agents = []
 
         for i in range(self.num_prey):
