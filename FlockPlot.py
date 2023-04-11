@@ -3,11 +3,8 @@ import matplotlib.pyplot as plt
 import math
 import imageio
 import os
-import csv
-import bisect
 
 # A little file to handle the bulk of the plotting functions (and the functions associated with them)
-
 def periodic_dist(L,x,y):
     return np.remainder(x - y + L/2, L) - L/2
 
