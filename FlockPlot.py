@@ -11,7 +11,6 @@ import bisect
 def periodic_dist(L,x,y):
     return np.remainder(x - y + L/2, L) - L/2
 
-
 # Needed to make plots with quivers
 def do_quiver(i,L,agents = None,positions = None,velocities=None):
 
