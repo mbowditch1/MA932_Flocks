@@ -59,7 +59,6 @@ class Model:
     def run(self):
         while self.curr_time < self.maxtime:
             self.step()
-            print(self.curr_time)
             self.curr_time += self.dt
             self.t.append(self.curr_time)
 
@@ -68,13 +67,12 @@ class Model:
                 self.agents += self.grid[i][j].agents
 
     def step(self):
-        positions = []
-        velocities = [] 
-        predator_pos = []
-        counter = 0 
         for i in range(self.num_cells):
             for j in range(self.num_cells):
                 for a in self.grid[i][j].agents:
+                    positions = []
+                    velocities = [] 
+                    predator_pos = []
                     for n in range(-1,2):
                         for m in range(-1,2):
                             for a_2 in self.grid[(i+n)%self.num_cells][(j+m)%self.num_cells].agents: 
@@ -83,11 +81,10 @@ class Model:
                                     velocities.append(a_2.vel[-1])
                                 elif a_2.type == "Predator":
                                     predator_pos.append(a_2.pos[-1])
-                                counter += 1
 
                     a.update_pos(self.dt, positions,velocities,self.L,self.r,self.cone,predator_pos)
                     a.pos[-1] = a.pos[-1] % self.L # add other BC later
-        counter = 0 
+
         for i in range(self.num_cells):
             for j in range(self.num_cells):
                 for k,a in enumerate(self.grid[i][j].agents):
@@ -99,8 +96,7 @@ class Model:
                         self.grid[i][j].agents.pop(k)
                         new_i,new_j = cell_finder(curr_a.pos[-1],self.r_hat)
                         self.grid[new_i][new_j].agents.append(curr_a)
-                        counter += 1
-        print(counter)
+                        
     # PLOTTING
     def quiver_plot(self,i = -1, animate = False, name = None):
         FP.quiver_plot(i,self.L,self.agents, animate, name, self.density)
@@ -160,9 +156,13 @@ class Predator(Agent):
     def update_pos(self,dt,positions,velocities,L,r,cone,predator_pos):
         # Predator moves towards nearest prey
         positions = [p for p in positions if not np.array_equal(p,self.pos[-1])]
-        nearest_pos = positions[np.argmin([np.linalg.norm(periodic_dist(L,x,self.pos[-1])) for x in positions])]
-        new_vel = periodic_dist(L,nearest_pos,self.pos[-1])
-        self.vel.append(new_vel/np.linalg.norm(new_vel))
+        if len(positions) > 0:
+            nearest_pos = positions[np.argmin([np.linalg.norm(periodic_dist(L,x,self.pos[-1])) for x in positions])]
+            new_vel = periodic_dist(L,nearest_pos,self.pos[-1])
+            self.vel.append(new_vel/np.linalg.norm(new_vel))
+        else:
+            self.vel.append(self.vel[-1]) # If no prey nearby keep moving in same direction
+
         slow_down = 0.9
         self.pos.append(self.pos[-1] + dt*self.vel[-1]*slow_down)
 

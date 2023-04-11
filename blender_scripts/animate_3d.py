@@ -30,8 +30,3 @@ for i,x in enumerate(col):
         x.keyframe_insert(data_path = "location", frame=f)
         x.keyframe_insert(data_path = "rotation_euler", frame=f)
         f += 5
-
-# For each 'bird' create an object in collection
-
-# Loop through objects in collection and set new locations
-# Done
