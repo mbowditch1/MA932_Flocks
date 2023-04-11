@@ -10,29 +10,51 @@ import FlockPlot as FP
 def periodic_dist(L,x,y):
     return np.remainder(x - y + L/2, L) - L/2
 
+class Cell:
+    def __init__(self,i,j,r_hat):
+        self.ymin = i * r_hat 
+        self.ymax = (i+1) * r_hat 
+        self.xmin = j*r_hat 
+        self.xmax = (j+1)*r_hat
+        self.agents = []
+
+def cell_finder(pos,r_hat):
+    return math.floor(pos[0]/r_hat),math.floor(pos[1]/r_hat)
+
 class Model:
     def __init__(self, dt = 1, density = 1, maxtime = 100, radius = 1, L = 10, noise = 0.05, phenotype = [0,1,0], volume = 0.1, angle = 2*np.pi, predators=1):
         self.dt, self.curr_time, self.maxtime, self.t = dt, 0, maxtime, [0]
         self.density, self.L = density, L
         self.num_prey, self.num_predators = int(L**2 * density), predators
         self.r, self.volume, self.cone = radius, volume, np.cos(angle/2) # sam fix, put as an input of agents
+        self.num_cells = math.floor(self.L/self.r)
+        self.r_hat = self.L/self.num_cells 
+        self.grid = [[Cell(i,j,self.r_hat) for i in range(self.num_cells)] for j in range(self.num_cells)]
         self.agents = []
 
         for i in range(self.num_prey):
-
             # Random initial position and normalised velocity
             x = np.random.uniform(0,L,2)
             v = np.random.uniform(-1/2,1/2,2)
             v = v/np.linalg.norm(v)
+            
+            agent_i,agent_j = cell_finder(x,self.r_hat)
 
-            self.agents.append(Prey(pos = x, vel = v, parameters = phenotype))
+            # Add prey to cell
+            self.grid[agent_i][agent_j].agents.append(Prey(pos = x, vel = v, parameters = phenotype))
 
         for i in range(self.num_predators):
 
             x = np.random.uniform(0,L,2)
             v = np.random.uniform(-1/2,1/2,2)
             v = v/np.linalg.norm(v)
-            self.agents.append(Predator(pos = x, vel = v, parameters = phenotype))
+
+            # Find cell that prey is contained within
+            agent_i = math.floor(x[0]/self.r_hat)
+            agent_j = math.floor(x[1]/self.r_hat)
+
+            self.grid[agent_i][agent_j].agents.append(Predator(pos = x, vel = v, parameters = phenotype))           
+
 
     def run(self):
         while self.curr_time < self.maxtime:
@@ -40,15 +62,41 @@ class Model:
             self.curr_time += self.dt
             self.t.append(self.curr_time)
 
+        for i in range(self.num_cells):
+            for j in range(self.num_cells):
+                self.agents += self.grid[i][j].agents
+
     def step(self):
-        positions = [x.pos[-1] for x in self.agents]
-        velocities = [x.vel[-1] for x in self.agents]
+        for i in range(self.num_cells):
+            for j in range(self.num_cells):
+                for a in self.grid[i][j].agents:
+                    positions = []
+                    velocities = [] 
+                    predator_pos = []
+                    for n in range(-1,2):
+                        for m in range(-1,2):
+                            for a_2 in self.grid[(i+n)%self.num_cells][(j+m)%self.num_cells].agents: 
+                                if a_2.type == "Prey":
+                                    positions.append(a_2.pos[-1])
+                                    velocities.append(a_2.vel[-1])
+                                elif a_2.type == "Predator":
+                                    predator_pos.append(a_2.pos[-1])
 
-        for a in self.agents:
-            predator_pos = [x.pos[-1] for x in self.agents if x.type == "Predator"]
-            a.update_pos(self.dt, positions,velocities,self.L,self.r,self.cone,predator_pos)
-            a.pos[-1] = a.pos[-1] % self.L # add other BC later
+                    a.update_pos(self.dt, positions,velocities,self.L,self.r,self.cone,predator_pos)
+                    a.pos[-1] = a.pos[-1] % self.L # add other BC later
 
+        for i in range(self.num_cells):
+            for j in range(self.num_cells):
+                for k,a in enumerate(self.grid[i][j].agents):
+                    # print(a.pos[-1], self.grid[i][j].xmin, self.grid[i][j].xmax, self.grid[i][j].ymin,self.grid[i][j].ymax)
+                    if not(a.pos[-1][0] > self.grid[i][j].xmin and a.pos[-1][0] < self.grid[i][j].xmax and a.pos[-1][1] < self.grid[i][j].ymax and a.pos[-1][1] > self.grid[i][j].ymin):
+                        curr_a = a
+
+                        # Delete agent from current cell
+                        self.grid[i][j].agents.pop(k)
+                        new_i,new_j = cell_finder(curr_a.pos[-1],self.r_hat)
+                        self.grid[new_i][new_j].agents.append(curr_a)
+                        
     # PLOTTING
     def quiver_plot(self,i = -1, animate = False, name = None):
         FP.quiver_plot(i,self.L,self.agents, animate, name, self.density)
@@ -108,9 +156,13 @@ class Predator(Agent):
     def update_pos(self,dt,positions,velocities,L,r,cone,predator_pos):
         # Predator moves towards nearest prey
         positions = [p for p in positions if not np.array_equal(p,self.pos[-1])]
-        nearest_pos = positions[np.argmin([np.linalg.norm(periodic_dist(L,x,self.pos[-1])) for x in positions])]
-        new_vel = periodic_dist(L,nearest_pos,self.pos[-1])
-        self.vel.append(new_vel/np.linalg.norm(new_vel))
+        if len(positions) > 0:
+            nearest_pos = positions[np.argmin([np.linalg.norm(periodic_dist(L,x,self.pos[-1])) for x in positions])]
+            new_vel = periodic_dist(L,nearest_pos,self.pos[-1])
+            self.vel.append(new_vel/np.linalg.norm(new_vel))
+        else:
+            self.vel.append(self.vel[-1]) # If no prey nearby keep moving in same direction
+
         slow_down = 0.9
         self.pos.append(self.pos[-1] + dt*self.vel[-1]*slow_down)
 
