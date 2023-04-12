@@ -1,6 +1,9 @@
 import numpy as np
+import imageio
 import math
 import csv
+from sklearn.cluster import DBSCAN
+import os
 import FlockPlot as FP
 
 
@@ -122,6 +125,28 @@ class Model:
     def sus_plot(self, num_bins=20):
         FP.sus_plot(self.L, self.agents, self.t, num_bins)
 
+    def cluster_plot(self, i=-1, eps=0.3, min_samples=5, animate=False):
+        db, positions, velocities, pred_pos, pred_vel = self.clustering(i=i, eps=eps, min_samples=min_samples)
+        FP.cluster_plot(db, positions=positions, velocities=velocities, pred_pos=pred_pos, pred_vel=pred_vel, i=i, animate=animate, L=self.L)
+
+    def animate_cluster_plot(self, eps=0.3, min_samples=5, name="cluster_gif"):
+        entries = os.listdir('data/')
+        for filename in entries:
+            os.remove('data/' + filename)
+        for i in range(len(self.agents[0].pos)):
+            self.cluster_plot(i=i, eps=eps, min_samples=min_samples, animate=True)
+        entries = os.listdir('data/')
+        entries = [int(x[:-4]) for x in entries]
+        entries.sort()
+        with imageio.get_writer(name + ".gif", mode='I') as writer:
+            for i, filename in enumerate(entries):
+                if i == 0:
+                    for j in range(4):
+                        image = imageio.imread('data/' + str(filename) + '.png')
+                        writer.append_data(image)
+                image = imageio.imread('data/' + str(filename) + '.png')
+                writer.append_data(image)
+
     # EXTRA FUNS
     def ord(self, i=-1):
         return FP.ord(self.agents, i)
@@ -131,6 +156,24 @@ class Model:
 
     def susceptibility(self, num_bins=20):
         return FP.susceptibility(self.L, self.agents, self.t, num_bins)
+
+    def clustering(self, i=-1, eps=0.3, min_samples=5):
+        # Use DBSCAN algorithm to assign points to groups
+        positions = []
+        velocities = []
+        pred_pos = []
+        pred_vel = []
+        for a in self.agents:
+            if a.type == "Prey":
+                positions.append(a.pos[i])
+                velocities.append(a.vel[i])
+            else:
+                pred_pos.append(a.pos[i])
+                pred_vel.append(a.vel[i])
+
+            db = DBSCAN(eps=1, min_samples=5).fit(positions)
+
+        return db, np.array(positions), np.array(velocities), np.array(pred_pos), np.array(pred_vel)
 
     def blender_csv(self):
         # Create CSV with positions of each agent

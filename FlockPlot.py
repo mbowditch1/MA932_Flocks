@@ -30,7 +30,7 @@ def do_quiver(i, L, agents=None, positions=None, velocities=None):
 
 # Call a quiver plot of agents
 def quiver_plot(i, L, agents, animate=False, name=None, density=None):
-    plt.figure()
+    plt.figure(figsize=(24, 16))
     do_quiver(i, L, agents)
     if name:
         string = name + r", $\rho$ =" + str(density)
@@ -38,6 +38,52 @@ def quiver_plot(i, L, agents, animate=False, name=None, density=None):
     if animate:
         plt.savefig('data/' + str(i)+'.png')
 
+        plt.close()
+    else:
+        plt.show()
+
+
+def cluster_plot(db, positions, velocities, pred_pos, pred_vel, i, L, animate=False):
+    labels = db.labels_
+    # Number of clusters in labels, ignoring noise if present.
+    n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
+    unique_labels = set(labels)
+    core_samples_mask = np.zeros_like(labels, dtype=bool)
+    core_samples_mask[db.core_sample_indices_] = True
+
+    plt.figure(figsize=(24, 16))
+    ax = plt.gca()
+    ax.set_facecolor('k')
+    colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
+    for k, col in zip(unique_labels, colors):
+        if k == -1:
+            # White used for noise
+            col = [1, 1, 1, 1]
+
+        class_member_mask = labels == k
+
+        xy = positions[class_member_mask]
+        uv = velocities[class_member_mask]
+        plt.quiver(
+            xy[:, 0],
+            xy[:, 1],
+            uv[:, 0],
+            uv[:, 1],
+            color=tuple(col)
+        )
+
+    plt.quiver(
+        pred_pos[:, 0],
+        pred_pos[:, 1],
+        pred_vel[:, 0],
+        pred_vel[:, 1],
+        color='r'
+    )
+    plt.title(f"Estimated number of clusters: {n_clusters_}")
+    plt.xlim((0, L))
+    plt.ylim((0, L))
+    if animate:
+        plt.savefig('data/' + str(i) + '.png')
         plt.close()
     else:
         plt.show()
