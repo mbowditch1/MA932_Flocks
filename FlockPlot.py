@@ -54,31 +54,21 @@ def cluster_plot(db, positions, velocities, pred_pos, pred_vel, i, L, animate=Fa
     plt.figure(figsize=(24, 16))
     ax = plt.gca()
     ax.set_facecolor('k')
-    colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
-    for k, col in zip(unique_labels, colors):
-        if k == -1:
-            # White used for noise
-            col = [1, 1, 1, 1]
-
-        class_member_mask = labels == k
-
-        xy = positions[class_member_mask]
-        uv = velocities[class_member_mask]
-        plt.quiver(
-            xy[:, 0],
-            xy[:, 1],
-            uv[:, 0],
-            uv[:, 1],
-            color=tuple(col)
-        )
-
+    colors = [plt.cm.cool(each) for each in np.linspace(0, 1, len(unique_labels))]
+    colors.append([1, 1, 1, 1])
+    prey_colors = [colors[z] for z in labels]
+    for z in range(len(pred_vel)):
+        prey_colors.append([1, 0, 0, 1])
+    positions = np.vstack((positions, pred_pos))
+    velocities = np.vstack((velocities, pred_vel))
     plt.quiver(
-        pred_pos[:, 0],
-        pred_pos[:, 1],
-        pred_vel[:, 0],
-        pred_vel[:, 1],
-        color='r'
+        positions[:, 0],
+        positions[:, 1],
+        velocities[:, 0],
+        velocities[:, 1],
+        color=prey_colors
     )
+
     plt.title(f"Estimated number of clusters: {n_clusters_}")
     plt.xlim((0, L))
     plt.ylim((0, L))
