@@ -5,6 +5,7 @@ import csv
 from sklearn.cluster import DBSCAN
 import os
 import FlockPlot as FP
+import matplotlib.pyplot as plt
 
 
 def disp_finder(L, x, y, periodic=True):
@@ -92,6 +93,7 @@ class Model:
                 self.agents += self.grid[i][j].agents
 
     def step(self):
+        index = len(self.t) - 1
         for i in range(self.num_cells):
             for j in range(self.num_cells):
                 for a in self.grid[i][j].agents:
@@ -102,10 +104,10 @@ class Model:
                         for m in range(-1, 2):
                             for a_2 in self.grid[(i+n) % self.num_cells][(j+m) % self.num_cells].agents:
                                 if a_2.type == "Prey":
-                                    positions.append(a_2.pos[-1])
-                                    velocities.append(a_2.vel[-1])
+                                    positions.append(a_2.pos[index])
+                                    velocities.append(a_2.vel[index])
                                 elif a_2.type == "Predator":
-                                    predator_pos.append(a_2.pos[-1])
+                                    predator_pos.append(a_2.pos[index])
 
                     a.update_pos(self.dt, positions, velocities, self.L,
                                  self.r, self.cone, predator_pos, self.exc_r)
@@ -125,23 +127,32 @@ class Model:
                         new_i, new_j = cell_finder(curr_a.pos[-1], self.r_hat)
                         self.grid[new_i][new_j].agents.append(curr_a)
 
-    def quiver_plot(self, i=-1, animate=False, name=None):
-        FP.quiver_plot(i, self.L, self.agents, animate, name, self.density)
+    def quiver_plot(self, i=-1, animate=False, name=None, ax=None):
+        FP.quiver_plot(i, self.L, self.agents, animate, name, self.density, ax)
 
-    def vel_fluc_plot(self, i=-1):
-        FP.vel_fluc_plot(i, self.L, self.agents)
+    def vel_fluc_plot(self, i=-1, ax=None):
+        FP.vel_fluc_plot(i, self.L, self.agents, ax)
 
-    def order_plot(self, save=False, title="order_plot"):
-        FP.order_plot(self.agents, self.t, save=save, title=title)
+    def order_plot(self, save=False, title="order_plot", ax=None):
+        FP.order_plot(self.agents, self.t, save=save, title=title, ax=ax)
 
-    def corr_plot(self, i=-1, num_bins=20):
-        FP.corr_plot(i, self.L, self.agents, num_bins)
+    def corr_plot(self, i=-1, num_bins=20, ax = None):
+        FP.corr_plot(i, self.L, self.agents, num_bins, ax)
 
     def animate(self, name='Gif'):
         FP.animate(self.agents, self.L, name)
 
-    def sus_plot(self, num_bins=20):
-        FP.sus_plot(self.L, self.agents, self.t, num_bins)
+    def sus_plot(self, num_bins=20, ax=None):
+        FP.sus_plot(self.L, self.agents, self.t, num_bins, ax)
+
+    def groups_plot(self, eps=0.3, min_samples=5, ax=None):
+        num_groups = np.zeros(len(self.t))
+        for i in range(len(num_groups)):
+            db = self.clustering(i=i, eps=eps, min_samples=min_samples)[0]
+            labels = db.labels_
+            num_groups[i] = len(set(labels)) - (1 if -1 in labels else 0)
+        ax = ax or plt.gca()
+        ax.plot(self.t,num_groups)
 
     def cluster_plot(self, i=-1, eps=0.3, min_samples=5, animate=False):
         db, positions, velocities, pred_pos, pred_vel = self.clustering(i=i, eps=eps, min_samples=min_samples)
@@ -189,7 +200,7 @@ class Model:
                 pred_pos.append(a.pos[i])
                 pred_vel.append(a.vel[i])
 
-            db = DBSCAN(eps=1, min_samples=5).fit(positions)
+        db = DBSCAN(eps=1, min_samples=5).fit(positions)
 
         return db, np.array(positions), np.array(velocities), np.array(pred_pos), np.array(pred_vel)
 
@@ -236,7 +247,7 @@ class Predator(Agent):
         bc_vel = np.zeros(2)
         if self.bc == "soft":
             # Get distance to boundary
-            bc_vel[0] = soft_boundary(self.pos[-1][0], L, self.br) 
+            bc_vel[0] = soft_boundary(self.pos[-1][0], L, self.br)
             bc_vel[1] = soft_boundary(self.pos[-1][1], L, self.br)
 
         if len(positions) > 0:
@@ -273,7 +284,7 @@ class Prey(Agent):
         bc_vel = np.zeros(2)
         if self.bc == "soft":
             # Get distance to boundary
-            bc_vel[0] = soft_boundary(self.pos[-1][0], L, self.br) 
+            bc_vel[0] = soft_boundary(self.pos[-1][0], L, self.br)
             bc_vel[1] = soft_boundary(self.pos[-1][1], L, self.br)
 
         collide_pos = []
