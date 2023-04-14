@@ -7,8 +7,20 @@ import os
 import FlockPlot as FP
 
 
-def periodic_dist(L, x, y):
-    return np.remainder(x - y + L/2, L) - L/2
+def disp_finder(L, x, y, periodic=True):
+    if periodic:
+        return np.remainder(x - y + L/2, L) - L/2
+    else:
+        return x - y
+
+
+def soft_boundary(x, L, r):
+    if x < r:
+        return math.cos((x*math.pi)/(2*r))
+    elif x > L-r:
+        return -1*math.cos(((L-x)*math.pi)/(2*r))
+    else:
+        return 0
 
 
 class Cell:
@@ -25,18 +37,25 @@ def cell_finder(pos, r_hat):
 
 
 class Model:
-    def __init__(self, dt=1, density=1, maxtime=100, radius=1, L=10,
-                 noise=0.05, phenotype=[0, 1, 0], volume=0.1, angle=2*np.pi,
-                 predators=1):
+    def __init__(self, dt=0.25, density=1, maxtime=50, radius=1, L=10,
+                 noise=0.05, phenotype=[0, 1, 0], angle=2*np.pi,
+                 predators=0, bc="periodic", exc_r=0.05, br=0.1):
         self.dt, self.curr_time, self.maxtime, self.t = dt, 0, maxtime, [0]
         self.density, self.L = density, L
         self.num_prey, self.num_predators = int(L**2 * density), predators
-        self.r, self.volume, self.cone = radius, volume, np.cos(angle/2)
+        self.r, self.cone = radius, np.cos(angle/2)
         self.num_cells = math.floor(self.L/self.r)
         self.r_hat = self.L/self.num_cells
         self.grid = [[Cell(i, j, self.r_hat) for i in range(self.num_cells)]
                      for j in range(self.num_cells)]
         self.agents = []
+        self.exc_r = exc_r
+
+        self.br = L*br
+        self.bc = bc
+        self.periodic = False
+        if bc == "periodic":
+            self.periodic = True
 
         for i in range(self.num_prey):
             # Random initial position and normalised velocity
@@ -47,7 +66,7 @@ class Model:
 
             # Add prey to cell
             self.grid[agent_i][agent_j].agents.append(
-                    Prey(pos=x, vel=v, parameters=phenotype))
+                    Prey(pos=x, vel=v, parameters=phenotype, bc=self.bc, br=self.br))
 
         for i in range(self.num_predators):
 
@@ -60,7 +79,7 @@ class Model:
             agent_j = math.floor(x[1]/self.r_hat)
 
             self.grid[agent_i][agent_j].agents.append(Predator(
-                pos=x, vel=v, parameters=phenotype))
+                pos=x, vel=v, parameters=phenotype, bc=self.bc))
 
     def run(self):
         while self.curr_time < self.maxtime:
@@ -89,7 +108,7 @@ class Model:
                                     predator_pos.append(a_2.pos[-1])
 
                     a.update_pos(self.dt, positions, velocities, self.L,
-                                 self.r, self.cone, predator_pos)
+                                 self.r, self.cone, predator_pos, self.exc_r)
                     a.pos[-1] = a.pos[-1] % self.L  # add other BC later
 
         for i in range(self.num_cells):
@@ -106,15 +125,14 @@ class Model:
                         new_i, new_j = cell_finder(curr_a.pos[-1], self.r_hat)
                         self.grid[new_i][new_j].agents.append(curr_a)
 
-    # PLOTTING
     def quiver_plot(self, i=-1, animate=False, name=None):
         FP.quiver_plot(i, self.L, self.agents, animate, name, self.density)
 
     def vel_fluc_plot(self, i=-1):
         FP.vel_fluc_plot(i, self.L, self.agents)
 
-    def order_plot(self):
-        FP.order_plot(self.agents, self.t)
+    def order_plot(self, save=False, title="order_plot"):
+        FP.order_plot(self.agents, self.t, save=save, title=title)
 
     def corr_plot(self, i=-1, num_bins=20):
         FP.corr_plot(i, self.L, self.agents, num_bins)
@@ -191,56 +209,79 @@ class Model:
 
 class Agent:
     def __init__(self, pos=np.array([0, 0]), vel=[1, 1],
-                 noise=0.1, parameters=[0, 1, 0]):
+                 noise=0.1, parameters=[0, 1, 0], bc="periodic", br=0.1):
         self.pos = [pos]
         self.vel = [vel]  # do scalar velocity
         self.noise = noise
         self.parameters = parameters
+        self.bc = bc
+        self.br = br
+        self.periodic = False
+        if self.bc == "periodic":
+            self.periodic = True
 
 
 class Predator(Agent):
     def __init__(self, pos=np.array([0, 0]), vel=[1, 1],
-                 noise=0.1, parameters=[0, 1, 0]):
-        super().__init__(pos, vel, noise, parameters)
+                 noise=0.1, parameters=[0, 1, 0], bc="periodic", br=1):
+        super().__init__(pos, vel, noise, parameters, bc, br)
         self.type = "Predator"
 
-    def update_pos(self, dt, positions, velocities, L, r, cone, predator_pos):
+    def update_pos(self, dt, positions, velocities, L, r, cone, predator_pos, exc_r):
         # Predator moves towards nearest prey
         positions = [p for p in positions if not
                      np.array_equal(p, self.pos[-1])]
+
+        # Velocity boundary contribution
+        bc_vel = np.zeros(2)
+        if self.bc == "soft":
+            # Get distance to boundary
+            bc_vel[0] = soft_boundary(self.pos[-1][0], L, self.br) 
+            bc_vel[1] = soft_boundary(self.pos[-1][1], L, self.br)
+
         if len(positions) > 0:
             nearest_pos = positions[np.argmin([np.linalg.norm(
-                periodic_dist(L, x, self.pos[-1])) for x in positions])]
-            new_vel = periodic_dist(L, nearest_pos, self.pos[-1])
-            self.vel.append(new_vel/np.linalg.norm(new_vel))
+                disp_finder(L, x, self.pos[-1], self.periodic)) for x in positions])]
+            new_vel = disp_finder(L, nearest_pos, self.pos[-1], self.periodic)
         else:
-            self.vel.append(self.vel[-1])
+            new_vel = self.vel[-1]
 
+        new_vel = new_vel+(bc_vel)
+        self.vel.append(new_vel/np.linalg.norm(new_vel))
         slow_down = 0.9
         self.pos.append(self.pos[-1] + dt*self.vel[-1]*slow_down)
 
 
 class Prey(Agent):
     def __init__(self, pos=np.array([0, 0]), vel=[1, 1],
-                 noise=0.1, parameters=[0, 1, 0]):
-        super().__init__(pos, vel, noise, parameters)
+                 noise=0.1, parameters=[0, 1, 0], bc="periodic", br=0.1):
+        super().__init__(pos, vel, noise, parameters, bc, br=br)
         self.type = "Prey"
 
-    def update_pos(self, dt, positions, velocities, L, r, cone, predator_pos):
+    def update_pos(self, dt, positions, velocities, L, r, cone, predator_pos, exc_r):
         # across boundary conditions
         nearby_pos = []
         nearby_vel = []
         nearby_predators = []
 
-        pred_disp = [periodic_dist(L, x, self.pos[-1]) for x in predator_pos]
+        pred_disp = [disp_finder(L, x, self.pos[-1], self.periodic) for x in predator_pos]
         for pd in pred_disp:
             if np.linalg.norm(pd) < r:
                 nearby_predators.append(pd)
 
-        for i, x in enumerate(positions):
-            vector = periodic_dist(L, x, self.pos[-1])
+        # Velocity boundary contribution
+        bc_vel = np.zeros(2)
+        if self.bc == "soft":
+            # Get distance to boundary
+            bc_vel[0] = soft_boundary(self.pos[-1][0], L, self.br) 
+            bc_vel[1] = soft_boundary(self.pos[-1][1], L, self.br)
 
-            if np.linalg.norm(vector) < r:
+        collide_pos = []
+        # Find nearby prey in vision cone
+        for i, x in enumerate(positions):
+            vector = disp_finder(L, x, self.pos[-1], self.periodic)
+            d = np.linalg.norm(vector)
+            if d < r:
                 dot = np.dot(self.vel[-1], vector)
                 norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
 
@@ -252,19 +293,30 @@ class Prey(Agent):
                     nearby_pos.append(np.array(vector))
                     nearby_vel.append(velocities[i])
 
-        if nearby_predators:
-            new_vel = -sum(nearby_predators)+np.random.normal(0, self.noise, 2)
-        else:
-            current = self.vel[-1]
-            if len(nearby_vel) > 0:
-                align = sum(nearby_vel)/len(nearby_vel)
-                centre = sum(nearby_pos)/len(nearby_pos)
-                new_vel = self.parameters[0]*current
-                new_vel += np.random.normal(0, self.noise, 2)
-                new_vel += self.parameters[1]*align+self.parameters[2]*centre
-            else:
-                new_vel = current
+                if d < exc_r:
+                    collide_pos.append(np.array(vector))
 
+        pred_vel = np.zeros(2)
+        if nearby_predators:
+            pred_vel = -sum(nearby_predators)+np.random.normal(0, self.noise, 2)
+            pred_vel = pred_vel/np.linalg.norm(pred_vel)
+
+        exclusion = np.zeros(2)
+        current = self.vel[-1]
+        if len(nearby_vel) > 0:
+            align = sum(nearby_vel)/len(nearby_vel)
+            centre = sum(nearby_pos)/len(nearby_pos)
+            new_vel = self.parameters[0]*current
+            new_vel += np.random.normal(0, self.noise, 2)
+            new_vel += self.parameters[1]*align+self.parameters[2]*centre
+            if len(collide_pos) > 1:
+                exclusion = -sum(collide_pos)/len(collide_pos)
+                exclusion = exclusion/np.linalg.norm(exclusion)
+        else:
+            new_vel = current
+
+        new_vel = new_vel/np.linalg.norm(new_vel)
+        new_vel = new_vel + pred_vel + bc_vel + exclusion
         if np.linalg.norm(new_vel) > 0:
             self.vel.append(new_vel/np.linalg.norm(new_vel))
         else:

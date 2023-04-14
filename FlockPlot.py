@@ -119,13 +119,18 @@ def ord(agents, i=-1):
 
 
 # Order plot
-def order_plot(agents, ts):
+def order_plot(agents, ts, save=False, title="order_plot"):
     orders = [ord(agents, i) for i in range(len(ts))]
     plt.figure()
     plt.plot(ts, orders)
+    plt.title(title)
     plt.xlabel("Time")
     plt.ylabel("Order")
-    plt.show()
+    if save:
+        plt.savefig('figures/' + title + ".png")
+        plt.close()
+    else:
+        plt.show()
 
 
 # To corr_plot
