@@ -9,48 +9,59 @@ import matplotlib.pyplot as plt
 
 
 def disp_finder(L, x, y, periodic=True):
+    """
+    finds the vector from x to y
+    x, y: np arrays
+    """
     if periodic:
         return np.remainder(x - y + L/2, L) - L/2
     else:
         return x - y
 
 
-def soft_boundary(x, L, r):
+def soft_boundary(x, y, L, r):
+    # Where do these values come from?
+    vx = vy = 0
     if x < r:
-        return math.cos((x*math.pi)/(2*r))
+        vx = math.cos((x*math.pi)/(2*r))
     elif x > L-r:
-        return -1*math.cos(((L-x)*math.pi)/(2*r))
+        vx = -1*math.cos(((L-x)*math.pi)/(2*r))
+    if y < r:
+        vy = math.cos((y*math.pi)/(2*r))
+    elif y > L-r:
+        vy = -1*math.cos(((L-y)*math.pi)/(2*r))
+    if vx or vy:
+
+        return np.array([vx,vy])
     else:
-        return 0
+        return np.zeros(2)
 
 
 class Cell:
-    def __init__(self, i, j, r_hat):
+    def __init__(self, i, j, r_hat): #why r_hat and not just r?
         self.ymin = i * r_hat
         self.ymax = (i+1) * r_hat
         self.xmin = j*r_hat
         self.xmax = (j+1)*r_hat
         self.agents = []
 
-
 def cell_finder(pos, r_hat):
-    return math.floor(pos[0]/r_hat), math.floor(pos[1]/r_hat)
-
+    return math.floor(pos[0]/r_hat), math.floor(pos[1]/r_hat) #int is the same as math.floor
 
 class Model:
-    def __init__(self, dt=0.25, density=1, maxtime=50, radius=1, L=10,
-                 noise=0.05, phenotype=[0, 1, 0], angle=2*np.pi,
-                 predators=0, bc="periodic", exc_r=0.05, br=0.1):
+    def __init__(self, dt=0.2, prey_density=1, pred_density = 0.01, maxtime=100, prey_radius=1, pred_radius =1, L=25,
+                 noise=0, prey_phenotype=[0, 1/2, 1, -5,0] ,pred_phenotype = [1,1,0,0,0,0], prey_angle=2*np.pi, pred_angle=7*np.pi/4,
+                bc="periodic", ic = "random", br=0.1):
+
         self.dt, self.curr_time, self.maxtime, self.t = dt, 0, maxtime, [0]
-        self.density, self.L = density, L
-        self.num_prey, self.num_predators = int(L**2 * density), predators
-        self.r, self.cone = radius, np.cos(angle/2)
-        self.num_cells = math.floor(self.L/self.r)
+        self.densityRatio, self.L = pred_density/ prey_density, L
+        self.num_prey, self.num_preds = int(L**2 * prey_density), int(L**2 * pred_density)
+        self.prey_r, self.pred_r, self.prey_cone, self.pred_cone = prey_radius, pred_radius, np.cos(prey_angle/2), np.cos(pred_angle/2)
+        self.num_cells = math.floor(self.L/max(self.prey_r,self.pred_r))
         self.r_hat = self.L/self.num_cells
         self.grid = [[Cell(i, j, self.r_hat) for i in range(self.num_cells)]
                      for j in range(self.num_cells)]
         self.agents = []
-        self.exc_r = exc_r
 
         self.br = L*br
         self.bc = bc
@@ -59,28 +70,38 @@ class Model:
             self.periodic = True
 
         for i in range(self.num_prey):
-            # Random initial position and normalised velocity
-            x = np.random.uniform(0, L, 2)
-            v = np.random.uniform(-1/2, 1/2, 2)
-            v = v/np.linalg.norm(v)
+
+            if ic == "school":
+                x = np.random.normal(L/3, L/10, 2)%L
+                v = np.array([0.0,1.0])
+            else:
+                # Random initial position and normalised velocity
+                x = np.random.uniform(0, L, 2)
+                v = np.random.uniform(-1/2, 1/2, 2)
+                v = v/np.linalg.norm(v)
+
             agent_i, agent_j = cell_finder(x, self.r_hat)
 
             # Add prey to cell
             self.grid[agent_i][agent_j].agents.append(
-                    Prey(pos=x, vel=v, parameters=phenotype, bc=self.bc, br=self.br))
+                    Prey(pos=x, vel=v, parameters = prey_phenotype, bc=self.bc, noise = noise, br=self.br, r = self.prey_r, cone = self.prey_cone))
 
-        for i in range(self.num_predators):
-
-            x = np.random.uniform(0, L, 2)
-            v = np.random.uniform(-1/2, 1/2, 2)
-            v = v/np.linalg.norm(v)
+        for i in range(self.num_preds):
+            if ic == "school":
+                x = np.random.normal(2*L/3, L/10, 2)%L
+                v = np.random.uniform(-1/2, 1/2, 2)
+                v = v/np.linalg.norm(v)
+            else:
+                x = np.random.uniform(0, L, 2)
+                v = np.random.uniform(-1/2, 1/2, 2)
+                v = v/np.linalg.norm(v)
 
             # Find cell that prey is contained within
             agent_i = math.floor(x[0]/self.r_hat)
             agent_j = math.floor(x[1]/self.r_hat)
 
-            self.grid[agent_i][agent_j].agents.append(Predator(
-                pos=x, vel=v, parameters=phenotype, bc=self.bc))
+            self.grid[agent_i][agent_j].agents.append(Pred(
+                pos=x, vel=v, parameters = pred_phenotype, bc=self.bc, br = self.br, noise = noise, r = self.prey_r, cone = self.prey_cone))
 
     def run(self):
         while self.curr_time < self.maxtime:
@@ -93,24 +114,30 @@ class Model:
                 self.agents += self.grid[i][j].agents
 
     def step(self):
+        """
+        Gives each agents all the prey and pred within the adjacent cells
+        """
         index = len(self.t) - 1
         for i in range(self.num_cells):
             for j in range(self.num_cells):
                 for a in self.grid[i][j].agents:
-                    positions = []
-                    velocities = []
-                    predator_pos = []
+                    prey_pos = []
+                    prey_vel = []
+                    pred_pos = []
+                    pred_vel = []
                     for n in range(-1, 2):
                         for m in range(-1, 2):
-                            for a_2 in self.grid[(i+n) % self.num_cells][(j+m) % self.num_cells].agents:
-                                if a_2.type == "Prey":
-                                    positions.append(a_2.pos[index])
-                                    velocities.append(a_2.vel[index])
-                                elif a_2.type == "Predator":
-                                    predator_pos.append(a_2.pos[index])
+                            for a_2 in self.grid[(i+n) % self.num_cells][(j+m) % self.num_cells].agents:  # does this work for non-periodic BCs?
+                                if a != a_2:
+                                    if a_2.type == "Prey":
+                                        prey_pos.append(a_2.pos[index])
+                                        prey_vel.append(a_2.vel[index])
+                                    elif a_2.type == "Predator":
+                                        pred_pos.append(a_2.pos[index])
+                                        pred_vel.append(a_2.vel[index])
 
-                    a.update_pos(self.dt, positions, velocities, self.L,
-                                 self.r, self.cone, predator_pos, self.exc_r)
+                    a.update_pos(self.dt, prey_pos, prey_vel, pred_pos, pred_vel, self.L)
+
                     a.pos[-1] = a.pos[-1] % self.L  # add other BC later
 
         for i in range(self.num_cells):
@@ -128,7 +155,7 @@ class Model:
                         self.grid[new_i][new_j].agents.append(curr_a)
 
     def quiver_plot(self, i=-1, animate=False, name=None, ax=None):
-        FP.quiver_plot(i, self.L, self.agents, animate, name, self.density, ax)
+        FP.quiver_plot(i, self.L, self.agents, animate, name, self.densityRatio, ax)
 
     def vel_fluc_plot(self, i=-1, ax=None):
         FP.vel_fluc_plot(i, self.L, self.agents, ax)
@@ -155,8 +182,8 @@ class Model:
         ax.plot(self.t,num_groups)
 
     def cluster_plot(self, i=-1, eps=0.3, min_samples=5, animate=False):
-        db, positions, velocities, pred_pos, pred_vel = self.clustering(i=i, eps=eps, min_samples=min_samples)
-        FP.cluster_plot(db, positions=positions, velocities=velocities, pred_pos=pred_pos, pred_vel=pred_vel, i=i, animate=animate, L=self.L)
+        db, prey_pos, prey_vel, pred_pos, pred_vel = self.clustering(i=i, eps=eps, min_samples=min_samples)
+        FP.cluster_plot(db, prey_pos, prey_vel, pred_pos, pred_vel, i=i, animate=animate, L=self.L)
 
     def animate_cluster_plot(self, eps=0.3, min_samples=5, name="cluster_gif"):
         entries = os.listdir('data/')
@@ -188,21 +215,21 @@ class Model:
 
     def clustering(self, i=-1, eps=0.3, min_samples=5):
         # Use DBSCAN algorithm to assign points to groups
-        positions = []
-        velocities = []
+        prey_pos = []
+        prey_vel = []
         pred_pos = []
         pred_vel = []
         for a in self.agents:
             if a.type == "Prey":
-                positions.append(a.pos[i])
-                velocities.append(a.vel[i])
+                prey_pos.append(a.pos[i])
+                prey_vel.append(a.vel[i])
             else:
                 pred_pos.append(a.pos[i])
                 pred_vel.append(a.vel[i])
 
-        db = DBSCAN(eps=1, min_samples=5).fit(positions)
+        db = DBSCAN(eps=1, min_samples=5).fit(prey_pos)
 
-        return db, np.array(positions), np.array(velocities), np.array(pred_pos), np.array(pred_vel)
+        return db, prey_pos, prey_vel, pred_pos, pred_vel
 
     def blender_csv(self):
         # Create CSV with positions of each agent
@@ -220,116 +247,196 @@ class Model:
 
 class Agent:
     def __init__(self, pos=np.array([0, 0]), vel=[1, 1],
-                 noise=0.1, parameters=[0, 1, 0], bc="periodic", br=0.1):
+                 noise=0.1, parameters=[0, 1, 0], bc="periodic", br=1, r = 1, cone = -1):
         self.pos = [pos]
         self.vel = [vel]  # do scalar velocity
         self.noise = noise
         self.parameters = parameters
         self.bc = bc
         self.br = br
+        self.cone =cone
+        self.r = r
         self.periodic = False
         if self.bc == "periodic":
             self.periodic = True
 
 
-class Predator(Agent):
+class Pred(Agent):
     def __init__(self, pos=np.array([0, 0]), vel=[1, 1],
-                 noise=0.1, parameters=[0, 1, 0], bc="periodic", br=1):
-        super().__init__(pos, vel, noise, parameters, bc, br)
+                 noise=0.1, parameters=[1, 2, 0, 1, -1/2, 1/2], bc="periodic", br=1, r = 1, cone = -1):
+        super().__init__(pos, vel, noise, parameters, bc, br, r, cone)
         self.type = "Predator"
 
-    def update_pos(self, dt, positions, velocities, L, r, cone, predator_pos, exc_r):
-        # Predator moves towards nearest prey
-        positions = [p for p in positions if not
-                     np.array_equal(p, self.pos[-1])]
+    def update_pos(self, dt, prey_pos, prey_vel, pred_pos, pred_vel, L):
+        directions = np.zeros((2,7))
 
-        # Velocity boundary contribution
-        bc_vel = np.zeros(2)
+        directions[:,0] = self.vel[-1]
+
+        #find the other prey in our visions cone
+        preyVC_pos = []
+        preyVC_vel = []
+
+        for i, x in enumerate(prey_pos):
+            vector = disp_finder(L, x, self.pos[-1], self.periodic)
+            d = np.linalg.norm(vector)
+
+            if d < self.r:
+                dot = np.dot(self.vel[-1], vector)
+                norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
+
+                if dot >= self.cone * norms:
+                    preyVC_pos.append(vector)
+                    preyVC_vel.append(prey_vel[i])
+
+        # if there is other prey, calculate the directions to the centre and the alignment
+        if len(preyVC_pos) > 0:
+            directions[:,1] = sum(preyVC_pos)/ len(preyVC_pos)
+            directions[:,2]= sum(preyVC_vel)/ len(preyVC_vel)
+            directions[:,3] = preyVC_pos[np.argmin([np.linalg.norm(disp_finder(L, x, self.pos[-1], self.periodic)) for x in preyVC_pos])]
+        else:
+            directions[:,1] = np.zeros(2)
+            directions[:,2] = np.zeros(2)
+            directions[:,3] = np.zeros(2)
+
+        #find the pred in our visions cone
+
+        predVC_pos = []
+        predVC_vel = []
+
+        for i, x in enumerate(pred_pos):
+            vector = disp_finder(L, x, self.pos[-1], self.periodic)
+            d = np.linalg.norm(vector)
+            if d < self.r:
+                dot = np.dot(self.vel[-1], vector)
+                norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
+
+                if dot >= self.cone * norms:
+                    predVC_pos.append(vector)
+                    predVC_vel.append(pred_vel[i])
+
+        # if there is predators, calculate the directions to the centre and the alignment
+        if len(predVC_pos) > 0:
+            directions[:,4] = sum(predVC_pos)/ len(predVC_pos)
+            directions[:,5]= sum(predVC_vel)/ len(predVC_vel)
+        else:
+            directions[:,4] = np.zeros(2)
+            directions[:,5] = np.zeros(2)
+
+        # get the boundary condition forces
+
         if self.bc == "soft":
             # Get distance to boundary
-            bc_vel[0] = soft_boundary(self.pos[-1][0], L, self.br)
-            bc_vel[1] = soft_boundary(self.pos[-1][1], L, self.br)
-
-        if len(positions) > 0:
-            nearest_pos = positions[np.argmin([np.linalg.norm(
-                disp_finder(L, x, self.pos[-1], self.periodic)) for x in positions])]
-            new_vel = disp_finder(L, nearest_pos, self.pos[-1], self.periodic)
+            directions[:,6] = soft_boundary(self.pos[-1][0], self.pos[-1][1], L, self.br)
+        elif self.bc == "reflective":
+            directions[:,6] = -self.vel[-1]
         else:
+            directions[:,6] = np.zeros(2)
+
+        new_vel = np.zeros(2)
+        for i, value in enumerate(self.parameters):
+            new_vel += value * directions[:,i]
+
+        new_vel += np.linalg.norm(self.parameters, ord=1) * directions[:,-1]
+
+        if not np.linalg.norm(new_vel):
             new_vel = self.vel[-1]
 
-        new_vel = new_vel+(bc_vel)
-        self.vel.append(new_vel/np.linalg.norm(new_vel))
-        slow_down = 0.9
-        self.pos.append(self.pos[-1] + dt*self.vel[-1]*slow_down)
+        new_vel += np.random.normal(0,self.noise,2)
+
+        speed = 1.25
+
+        new_vel = speed * new_vel/np.linalg.norm(new_vel)
+
+        self.vel.append(new_vel)
+
+        self.pos.append(self.pos[-1] + dt*self.vel[-1])
 
 
 class Prey(Agent):
     def __init__(self, pos=np.array([0, 0]), vel=[1, 1],
-                 noise=0.1, parameters=[0, 1, 0], bc="periodic", br=0.1):
-        super().__init__(pos, vel, noise, parameters, bc, br=br)
+                 noise=0.1, parameters=np.array([1,-1,3,-5,-5,0]), bc="periodic", br=0.1, r = 1, cone = -1):
+        super().__init__(pos, vel, noise, parameters, bc, br, r, cone)
         self.type = "Prey"
 
-    def update_pos(self, dt, positions, velocities, L, r, cone, predator_pos, exc_r):
-        # across boundary conditions
-        nearby_pos = []
-        nearby_vel = []
-        nearby_predators = []
+    def update_pos(self, dt, prey_pos, prey_vel, pred_pos, pred_vel, L):
+        directions = np.zeros((2,6))
+        directions[:,0] = self.vel[-1]
 
-        pred_disp = [disp_finder(L, x, self.pos[-1], self.periodic) for x in predator_pos]
-        for pd in pred_disp:
-            if np.linalg.norm(pd) < r:
-                nearby_predators.append(pd)
+        #find the other prey in our visions cone
+        preyVC_pos = []
+        preyVC_vel = []
 
-        # Velocity boundary contribution
-        bc_vel = np.zeros(2)
-        if self.bc == "soft":
-            # Get distance to boundary
-            bc_vel[0] = soft_boundary(self.pos[-1][0], L, self.br)
-            bc_vel[1] = soft_boundary(self.pos[-1][1], L, self.br)
 
-        collide_pos = []
-        # Find nearby prey in vision cone
-        for i, x in enumerate(positions):
+        for i, x in enumerate(prey_pos):
             vector = disp_finder(L, x, self.pos[-1], self.periodic)
             d = np.linalg.norm(vector)
-            if d < r:
+
+            if d < self.r:
                 dot = np.dot(self.vel[-1], vector)
                 norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
 
-                if not norms:
-                    nearby_pos.append(np.array(vector))
-                    nearby_vel.append(velocities[i])
+                if dot >= self.cone * norms:
+                    preyVC_pos.append(vector*((-1/np.log(0.75))*np.log(d/self.r)+1))
+                    preyVC_vel.append(prey_vel[i])
 
-                elif dot/norms > cone:
-                    nearby_pos.append(np.array(vector))
-                    nearby_vel.append(velocities[i])
+        # if there is other prey, calculate the directions to the centre and the alignment
+        if len(preyVC_pos) > 0:
+            directions[:,1] = sum(preyVC_pos)/len(preyVC_pos)
+            directions[:,2] = sum(preyVC_vel)/ len(preyVC_vel)
+            #print (directions [:,1])
+            #print (directions [:,2])
+            #print ()
 
-                if d < exc_r:
-                    collide_pos.append(np.array(vector))
-
-        pred_vel = np.zeros(2)
-        if nearby_predators:
-            pred_vel = -sum(nearby_predators)+np.random.normal(0, self.noise, 2)
-            pred_vel = pred_vel/np.linalg.norm(pred_vel)
-
-        exclusion = np.zeros(2)
-        current = self.vel[-1]
-        if len(nearby_vel) > 0:
-            align = sum(nearby_vel)/len(nearby_vel)
-            centre = sum(nearby_pos)/len(nearby_pos)
-            new_vel = self.parameters[0]*current
-            new_vel += np.random.normal(0, self.noise, 2)
-            new_vel += self.parameters[1]*align+self.parameters[2]*centre
-            if len(collide_pos) > 1:
-                exclusion = -sum(collide_pos)/len(collide_pos)
-                exclusion = exclusion/np.linalg.norm(exclusion)
         else:
-            new_vel = current
+            directions[:,1] = np.zeros(2)
+            directions[:,2] = np.zeros(2)
+
+        #find the pred in our visions cone
+
+        predVC_pos = []
+        predVC_vel = []
+
+        for i, x in enumerate(pred_pos):
+            vector = disp_finder(L, x, self.pos[-1], self.periodic)
+            d = np.linalg.norm(vector)
+            if d < self.r:
+                dot = np.dot(self.vel[-1], vector)
+                norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
+                if dot >= self.cone * norms:
+                    predVC_pos.append(vector)
+                    predVC_vel.append(pred_vel[i])
+
+        # if there is predators, calculate the directions to the centre and the alignment
+        if len(predVC_pos) > 0:
+            directions[:,3] = sum(predVC_pos)/ len(predVC_pos)
+            directions[:,4]= sum(predVC_vel)/ len(predVC_vel)
+        else:
+            directions[:,3] = np.zeros(2)
+            directions[:,4] = np.zeros(2)
+
+        # get the boundary condition forces
+
+        if self.bc == "soft":
+            # Get distance to boundary
+            directions[:,5] = soft_boundary(self.pos[-1][0], self.pos[-1][1], L, self.br)
+        elif self.bc == "reflective":
+            directions[:,5] = -self.vel[-1]
+        else:
+            directions[:,5] = np.zeros(2)
+
+        new_vel = np.zeros(2)
+        for i, value in enumerate(self.parameters):
+            new_vel += value * directions[:,i]
+
+        new_vel += np.linalg.norm(self.parameters, ord=1) * directions[:,-1]
+
+        if not np.linalg.norm(new_vel):
+            new_vel = self.vel[-1]
+
+        new_vel += np.random.normal(0,self.noise,2)
 
         new_vel = new_vel/np.linalg.norm(new_vel)
-        new_vel = new_vel + pred_vel + bc_vel + exclusion
-        if np.linalg.norm(new_vel) > 0:
-            self.vel.append(new_vel/np.linalg.norm(new_vel))
-        else:
-            self.vel.append(new_vel)
+
+        self.vel.append(new_vel)
+
         self.pos.append(self.pos[-1] + dt*self.vel[-1])

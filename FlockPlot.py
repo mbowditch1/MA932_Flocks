@@ -47,7 +47,7 @@ def quiver_plot(i, L, agents, animate=False, name=None, density=None, ax=None):
         plt.show()
 
 
-def cluster_plot(db, positions, velocities, pred_pos, pred_vel, i, L, animate=False):
+def cluster_plot(db, prey_pos, prey_vel, pred_pos, pred_vel, i, L, animate=False):
     labels = db.labels_
     # Number of clusters in labels, ignoring noise if present.
     n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
@@ -63,8 +63,8 @@ def cluster_plot(db, positions, velocities, pred_pos, pred_vel, i, L, animate=Fa
     prey_colors = [colors[z] for z in labels]
     for z in range(len(pred_vel)):
         prey_colors.append([1, 0, 0, 1])
-    positions = np.vstack((positions, pred_pos))
-    velocities = np.vstack((velocities, pred_vel))
+    prey_pos = np.vstack((prey_pos, pred_pos))
+    prey_vel = np.vstack((prey_vel, pred_vel))
     plt.quiver(
         positions[:, 0],
         positions[:, 1],
