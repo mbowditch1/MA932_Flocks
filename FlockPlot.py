@@ -120,6 +120,44 @@ def vel_fluc_plot(i, L, agents, ax = None):
     do_quiver(i, L, None, positions, dim_vel)
     plt.show()
 
+def spatial_distribution(i, L, agents, periodic=True, n = 100):
+    rs = np.linspace(0,L,n)
+    K = np.zeros(n)
+    prey = [x for x in agents if x.type != "Predator"]  # Fast
+    N = len(prey)
+    for j in range(N):
+        for k in range(j, N):
+            if j != k:
+                d = np.linalg.norm(disp_finder(L, prey[j].pos[i], prey[k].pos[i]), periodic)
+                bools = [d < r for r in rs]
+                index = sum(bools)
+                K[-index:] += 2
+    K = K * L**2 / (N * (N-1) * np.pi)
+    K = np.power(K, 1/2) - rs
+    return K
+
+def spatial_distribution_average(i, frames, L, agents, ax = None, periodic=True, n = 100):
+    rs = np.linspace(0,L,n)
+
+    K = np.zeros(n)
+    for j in range(frames):
+        K += spatial_distribution(i-j, L, agents)
+
+    plt.plot(rs, K)
+    plt.xlabel("$r$")
+    plt.ylabel("$\hat{L}(r)$")
+    plt.ylim(1.05*min(K), -1.05*min(K))
+    plt.show()
+
+def disp_finder(L, x, y, periodic=True):
+    if periodic:
+        return np.remainder(x - y + L/2, L) - L/2
+    else:
+        return x - y
+
+
+
+
 
 # Need for order plot
 def ord(agents, i=-1):
@@ -199,7 +237,6 @@ def corr_plot(i, L, agents, num_bins, ax = None):
     plt.figure()
     plt.plot(bins, correlation)
     plt.show()
-
 
 # Chi stuff
 def susceptibility(L, agents, ts, num_bins=20):
