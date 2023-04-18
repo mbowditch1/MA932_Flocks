@@ -11,7 +11,7 @@ def periodic_dist(L, x, y):
 
 
 # Needed to make plots with quivers
-def do_quiver(i, L, agents=None, positions=None, velocities=None):
+def do_quiver(i, L, agents=None, positions=None, velocities=None, ax=None):
     if (positions is not None and velocities is None) or (positions is None and velocities is not None):
         print('Please provide both positions and velocities for quiver plot')
     elif positions is not None and velocities is not None:
@@ -23,13 +23,17 @@ def do_quiver(i, L, agents=None, positions=None, velocities=None):
         us, vs = [x.vel[i][0] for x in agents], [x.vel[i][1] for x in agents]
         cols = ['r' if x.type == "Predator" else "k" for x in agents]
 
-    plt.quiver(xs, ys, us, vs, color=cols)
-    plt.xlim([0, L])
-    plt.ylim([0, L])
+    ax = ax or plt.gca()
+    ax.quiver(xs, ys, us, vs, color=cols)
+    ax.set_xlim([0, L])
+    ax.set_ylim([0, L])
 
 
 # Call a quiver plot of agents
-def quiver_plot(i, L, agents, animate=False, name=None, density=None):
+def quiver_plot(i, L, agents, animate=False, name=None, density=None, ax=None):
+    if ax:
+        do_quiver(i, L, agents, ax=ax)
+        return
     plt.figure(figsize=(24, 16))
     do_quiver(i, L, agents)
     if name:
@@ -62,11 +66,12 @@ def cluster_plot(db, prey_pos, prey_vel, pred_pos, pred_vel, i, L, animate=False
     prey_pos = np.vstack((prey_pos, pred_pos))
     prey_vel = np.vstack((prey_vel, pred_vel))
     plt.quiver(
-        prey_pos[:, 0],
-        prey_pos[:, 1],
-        prey_vel[:, 0],
-        prey_vel[:, 1],
-        color=prey_colors
+        positions[:, 0],
+        positions[:, 1],
+        velocities[:, 0],
+        velocities[:, 1],
+        color=prey_colors,
+        headaxislength = 0.1
     )
 
     plt.title(f"Estimated number of clusters: {n_clusters_}")
@@ -100,16 +105,58 @@ def animate(agents, L, name="Gif"):
 
 
 # Velocity fluctuation plot
-def vel_fluc_plot(i, L, agents):
+def vel_fluc_plot(i, L, agents, ax = None):
     positions = [x.pos[i] for x in agents if x.type != "Predator"]  # Fast
     prey_agents_vel = [a.vel[i] for a in agents if a.type != "Predator"]
     avg_vel = np.mean(prey_agents_vel, axis=0)
     denom = math.sqrt(sum([np.linalg.norm(v-avg_vel)**2 for v in prey_agents_vel])/len(prey_agents_vel))
     dim_vel = [(v-avg_vel)/denom for v in prey_agents_vel]
 
+    if ax:
+        do_quiver(i, L, agents, ax=ax)
+        return
+
     plt.figure()
     do_quiver(i, L, None, positions, dim_vel)
     plt.show()
+
+def spatial_distribution(i, L, agents, periodic=True, n = 100):
+    rs = np.linspace(0,L,n)
+    K = np.zeros(n)
+    prey = [x for x in agents if x.type != "Predator"]  # Fast
+    N = len(prey)
+    for j in range(N):
+        for k in range(j, N):
+            if j != k:
+                d = np.linalg.norm(disp_finder(L, prey[j].pos[i], prey[k].pos[i]), periodic)
+                bools = [d < r for r in rs]
+                index = sum(bools)
+                K[-index:] += 2
+    K = K * L**2 / (N * (N-1) * np.pi)
+    K = np.power(K, 1/2) - rs
+    return K
+
+def spatial_distribution_average(i, frames, L, agents, ax = None, periodic=True, n = 100):
+    rs = np.linspace(0,L,n)
+
+    K = np.zeros(n)
+    for j in range(frames):
+        K += spatial_distribution(i-j, L, agents)
+
+    plt.plot(rs, K)
+    plt.xlabel("$r$")
+    plt.ylabel("$\hat{L}(r)$")
+    plt.ylim(1.05*min(K), -1.05*min(K))
+    plt.show()
+
+def disp_finder(L, x, y, periodic=True):
+    if periodic:
+        return np.remainder(x - y + L/2, L) - L/2
+    else:
+        return x - y
+
+
+
 
 
 # Need for order plot
@@ -119,8 +166,13 @@ def ord(agents, i=-1):
 
 
 # Order plot
-def order_plot(agents, ts, save=False, title="order_plot"):
+def order_plot(agents, ts, save=False, title="order_plot", ax = None):
     orders = [ord(agents, i) for i in range(len(ts))]
+
+    if ax:
+        ax.plot(ts,orders)
+        return
+
     plt.figure()
     plt.plot(ts, orders)
     plt.title(title)
@@ -170,8 +222,6 @@ def corr(i, L, agents, num_bins=20):
                 counter += 1
 
             dot_prod = dot_prod / counter
-        else:
-            print("No agents in bin")
 
         correlation[b] = dot_prod
 
@@ -179,12 +229,14 @@ def corr(i, L, agents, num_bins=20):
 
 
 # Corr plot
-def corr_plot(i, L, agents, num_bins):
+def corr_plot(i, L, agents, num_bins, ax = None):
     bins, correlation = corr(i, L, agents, num_bins)
+    if ax:
+        ax.plot(bins, correlation)
+        return
     plt.figure()
     plt.plot(bins, correlation)
     plt.show()
-
 
 # Chi stuff
 def susceptibility(L, agents, ts, num_bins=20):
@@ -200,8 +252,11 @@ def susceptibility(L, agents, ts, num_bins=20):
     return chis
 
 
-def sus_plot(L, agents, ts, num_bins=20):
+def sus_plot(L, agents, ts, num_bins=20,ax=None):
     chis = susceptibility(L, agents, ts, num_bins=20)
+    if ax:
+        ax.plot(ts, chis)
+        return
     plt.figure()
     plt.plot(ts, chis)
     plt.xlabel('Time')

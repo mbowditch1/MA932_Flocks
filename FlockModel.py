@@ -9,10 +9,6 @@ import matplotlib.pyplot as plt
 
 
 def disp_finder(L, x, y, periodic=True):
-    """
-    finds the vector from x to y
-    x, y: np arrays
-    """
     if periodic:
         return np.remainder(x - y + L/2, L) - L/2
     else:
@@ -20,7 +16,6 @@ def disp_finder(L, x, y, periodic=True):
 
 
 def soft_boundary(x, y, L, r):
-    # Where do these values come from?
     vx = vy = 0
     if x < r:
         vx = math.cos((x*math.pi)/(2*r))
@@ -31,7 +26,6 @@ def soft_boundary(x, y, L, r):
     elif y > L-r:
         vy = -1*math.cos(((L-y)*math.pi)/(2*r))
     if vx or vy:
-
         return np.array([vx,vy])
     else:
         return np.zeros(2)
@@ -50,8 +44,8 @@ def cell_finder(pos, r_hat):
 
 class Model:
     def __init__(self, dt=0.2, prey_density=1, pred_density = 0.01, maxtime=100, prey_radius=1, pred_radius =1, L=25,
-                 noise=0, prey_phenotype=[0, 1/2, 1, -5,0] ,pred_phenotype = [1,1,0,0,0,0], prey_angle=2*np.pi, pred_angle=7*np.pi/4,
-                bc="periodic", ic = "random", br=0.1):
+                 noise=0, prey_phenotype=[0, 1/2, 1, -5,0] ,pred_phenotype = [3,1,0,0,0,0], prey_angle=2*np.pi, pred_angle=7*np.pi/4,
+                bc="periodic", ic = "random", br=0.1, exc_r = 0.5):
 
         self.dt, self.curr_time, self.maxtime, self.t = dt, 0, maxtime, [0]
         self.densityRatio, self.L = pred_density/ prey_density, L
@@ -62,7 +56,7 @@ class Model:
         self.grid = [[Cell(i, j, self.r_hat) for i in range(self.num_cells)]
                      for j in range(self.num_cells)]
         self.agents = []
-
+        self.exc_r =  exc_r
         self.br = L*br
         self.bc = bc
         self.periodic = False
@@ -73,7 +67,7 @@ class Model:
 
             if ic == "school":
                 x = np.random.normal(L/3, L/10, 2)%L
-                v = np.array([0.0,1.0])
+                v = np.array([0.0,1.0]) + np.random.normal(0,noise,2)
             else:
                 # Random initial position and normalised velocity
                 x = np.random.uniform(0, L, 2)
@@ -84,12 +78,12 @@ class Model:
 
             # Add prey to cell
             self.grid[agent_i][agent_j].agents.append(
-                    Prey(pos=x, vel=v, parameters = prey_phenotype, bc=self.bc, noise = noise, br=self.br, r = self.prey_r, cone = self.prey_cone))
+                    Prey(pos=x, vel=v, parameters = prey_phenotype, bc=self.bc, noise = noise, br=self.br, exc_r = self.exc_r, r = self.prey_r, cone = self.prey_cone))
 
         for i in range(self.num_preds):
             if ic == "school":
                 x = np.random.normal(2*L/3, L/10, 2)%L
-                v = np.random.uniform(-1/2, 1/2, 2)
+                v = np.array([1.0,0]) + np.random.normal(0,noise,2)
                 v = v/np.linalg.norm(v)
             else:
                 x = np.random.uniform(0, L, 2)
@@ -156,6 +150,9 @@ class Model:
 
     def quiver_plot(self, i=-1, animate=False, name=None, ax=None):
         FP.quiver_plot(i, self.L, self.agents, animate, name, self.densityRatio, ax)
+
+    def spatial_distribution_plot(self,i=-1, ax = None ):
+        FP.spatial_distribution_average(i, 10, self.L, self.agents, ax, self.periodic)
 
     def vel_fluc_plot(self, i=-1, ax=None):
         FP.vel_fluc_plot(i, self.L, self.agents, ax)
@@ -290,7 +287,7 @@ class Pred(Agent):
 
         # if there is other prey, calculate the directions to the centre and the alignment
         if len(preyVC_pos) > 0:
-            directions[:,1] = sum(preyVC_pos)/ len(preyVC_pos)
+            directions[:,1] = sum(preyVC_pos)/ (len(preyVC_pos) * self.r)
             directions[:,2]= sum(preyVC_vel)/ len(preyVC_vel)
             directions[:,3] = preyVC_pos[np.argmin([np.linalg.norm(disp_finder(L, x, self.pos[-1], self.periodic)) for x in preyVC_pos])]
         else:
@@ -341,6 +338,8 @@ class Pred(Agent):
         if not np.linalg.norm(new_vel):
             new_vel = self.vel[-1]
 
+        new_vel = new_vel/np.linalg.norm(new_vel)
+
         new_vel += np.random.normal(0,self.noise,2)
 
         speed = 1.25
@@ -354,9 +353,10 @@ class Pred(Agent):
 
 class Prey(Agent):
     def __init__(self, pos=np.array([0, 0]), vel=[1, 1],
-                 noise=0.1, parameters=np.array([1,-1,3,-5,-5,0]), bc="periodic", br=0.1, r = 1, cone = -1):
+                 noise=0.1, parameters=np.array([1,-1,3,-5,-5,0]), bc="periodic", br=0.1, r = 1, cone = -1, exc_r = 0.5):
         super().__init__(pos, vel, noise, parameters, bc, br, r, cone)
         self.type = "Prey"
+        self.exc_r = exc_r
 
     def update_pos(self, dt, prey_pos, prey_vel, pred_pos, pred_vel, L):
         directions = np.zeros((2,6))
@@ -365,7 +365,6 @@ class Prey(Agent):
         #find the other prey in our visions cone
         preyVC_pos = []
         preyVC_vel = []
-
 
         for i, x in enumerate(prey_pos):
             vector = disp_finder(L, x, self.pos[-1], self.periodic)
@@ -376,17 +375,13 @@ class Prey(Agent):
                 norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
 
                 if dot >= self.cone * norms:
-                    preyVC_pos.append(vector*((-1/np.log(0.75))*np.log(d/self.r)+1))
+                    preyVC_pos.append(vector*((-1/np.log(self.exc_r)**10)*np.log(d/self.r)**10+1))
                     preyVC_vel.append(prey_vel[i])
 
         # if there is other prey, calculate the directions to the centre and the alignment
         if len(preyVC_pos) > 0:
-            directions[:,1] = sum(preyVC_pos)/len(preyVC_pos)
+            directions[:,1] = sum(preyVC_pos)/(len(preyVC_pos)*self.r)
             directions[:,2] = sum(preyVC_vel)/ len(preyVC_vel)
-            #print (directions [:,1])
-            #print (directions [:,2])
-            #print ()
-
         else:
             directions[:,1] = np.zeros(2)
             directions[:,2] = np.zeros(2)
@@ -432,6 +427,8 @@ class Prey(Agent):
 
         if not np.linalg.norm(new_vel):
             new_vel = self.vel[-1]
+
+        new_vel = new_vel/np.linalg.norm(new_vel)
 
         new_vel += np.random.normal(0,self.noise,2)
 
