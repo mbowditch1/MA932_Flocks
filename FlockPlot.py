@@ -30,18 +30,16 @@ def do_quiver(i, L, agents=None, positions=None, velocities=None, ax=None):
 
 
 # Call a quiver plot of agents
-def quiver_plot(i, L, agents, animate=False, name=None, density=None, ax=None):
+def quiver_plot(i, L, agents, animate=False, title=None, ax=None):
     if ax:
         do_quiver(i, L, agents, ax=ax)
         return
     plt.figure(figsize=(24, 16))
     do_quiver(i, L, agents)
-    if name:
-        string = name + r", $\rho$ =" + str(density)
-        plt.title(string)
+    if title:
+        plt.title(title)
     if animate:
         plt.savefig('data/' + str(i)+'.png')
-
         plt.close()
     else:
         plt.show()
@@ -85,16 +83,16 @@ def cluster_plot(db, prey_pos, prey_vel, pred_pos, pred_vel, i, L, animate=False
 
 
 # Animating quiver_plot
-def animate(agents, L, name="Gif"):
+def animate(agents, L, title="Gif"):
     entries = os.listdir('data/')
     for filename in entries:
         os.remove('data/' + filename)
     for i in range(len(agents[0].pos)):
-        quiver_plot(i, L, agents, True, name)
+        quiver_plot(i, L, agents, True, title)
     entries = os.listdir('data/')
     entries = [int(x[:-4]) for x in entries]
     entries.sort()
-    with imageio.get_writer(name + ".gif", mode='I') as writer:
+    with imageio.get_writer('gifs/' + title + '.gif', mode='I') as writer:
         for i, filename in enumerate(entries):
             if i == 0:
                 for j in range(4):
@@ -136,28 +134,35 @@ def spatial_distribution(i, L, agents, periodic=True, n = 100):
     K = np.power(K, 1/2) - rs
     return K
 
-def spatial_distribution_average(i, frames, L, agents, ax = None, periodic=True, n = 100):
+def spatial_distribution_average(i, L, agents,  frames = 1, ax = None, periodic=True, save = False, title = "Clustering Plot", n=100):
     rs = np.linspace(0,L,n)
-
     K = np.zeros(n)
     for j in range(frames):
         K += spatial_distribution(i-j, L, agents)
 
+    K = K/frames
+
+    print (rs[np.argmax(K)])
+
     plt.plot(rs, K)
-    plt.xlabel("$r$")
-    plt.ylabel("$\hat{L}(r)$")
+    plt.xticks = [rs[np.argmax(K)]]
+    plt.yticks = [0, np.argmax(K)]
+    plt.xlabel(r"$r$")
+    plt.ylabel(r"$\langle \hat{L}(r)\rangle$")
     plt.ylim(1.05*min(K), -1.05*min(K))
-    plt.show()
+    plt.title(title)
+    if save:
+        plt.savefig('figures/' + title + ".png")
+        plt.close()
+    else:
+        plt.show()
+
 
 def disp_finder(L, x, y, periodic=True):
     if periodic:
         return np.remainder(x - y + L/2, L) - L/2
     else:
         return x - y
-
-
-
-
 
 # Need for order plot
 def ord(agents, i=-1):
@@ -166,7 +171,7 @@ def ord(agents, i=-1):
 
 
 # Order plot
-def order_plot(agents, ts, save=False, title="order_plot", ax = None):
+def order_plot(agents, ts, save=False, title="Order Plot", ax = None):
     orders = [ord(agents, i) for i in range(len(ts))]
 
     if ax:
@@ -178,6 +183,7 @@ def order_plot(agents, ts, save=False, title="order_plot", ax = None):
     plt.title(title)
     plt.xlabel("Time")
     plt.ylabel("Order")
+    plt.ylim(0,1)
     if save:
         plt.savefig('figures/' + title + ".png")
         plt.close()
