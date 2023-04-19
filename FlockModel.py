@@ -419,7 +419,7 @@ class Prey(Agent):
         new_vel += self.parameters[1] * prey_prey_attraction
         new_vel -= self.parameters[2] * prey_prey_repulsion
         new_vel -= self.parameters[3] * pred_alignment
-        new_vel -= self.parameters[4] * prey_prey_repulsion
+        new_vel -= self.parameters[4] * prey_pred_repulsion
         new_vel += np.linalg.norm(new_vel) * boundary_force
 
         if not np.linalg.norm(new_vel):
