@@ -134,28 +134,36 @@ def spatial_distribution(i, L, agents, periodic=True, n = 100):
     K = np.power(K, 1/2) - rs
     return K
 
-def spatial_distribution_average(i, L, agents,  frames = 1, ax = None, periodic=True, save = False, title = "Clustering Plot", n=100):
+def spatial_distribution_average(i, L, agents,  frames = 1, periodic=True, n=100):
     rs = np.linspace(0,L,n)
     K = np.zeros(n)
     for j in range(frames):
         K += spatial_distribution(i-j, L, agents)
 
     K = K/frames
+    return rs, K
 
-    print (rs[np.argmax(K)])
+def characteristic_flock_size(i, L, agents, frames=1, periodic=True, n=100):
+    rs, K = spatial_distribution_average(i,L,agents,frames,periodic,n)
+    return rs[np.argmax(K)]
 
-    plt.plot(rs, K)
-    plt.xticks = [rs[np.argmax(K)]]
-    plt.yticks = [0, np.argmax(K)]
-    plt.xlabel(r"$r$")
-    plt.ylabel(r"$\langle \hat{L}(r)\rangle$")
-    plt.ylim(1.05*min(K), -1.05*min(K))
-    plt.title(title)
+def Ripleys_L_plot(i, L, agents, frames=1, periodic=True, n=100, ax = None, save = False, title = "Clustering Plot"):
+    rs, K = spatial_distribution_average(i,L,agents,frames,periodic,n)
+    ax = ax or plt.gca()
+    ax.plot(rs, K)
+    ax.set_xticks = [rs[np.argmax(K)]]
+    ax.set_yticks = [0, np.argmax(K)]
+    ax.set_xlabel(r"$r$")
+    ax.set_ylabel(r"$\langle \hat{L}(r)\rangle$")
+    ax.set_ylim(1.05*min(K), -1.05*min(K))
+    ax.set_title(title)
     if save:
-        plt.savefig('figures/' + title + ".png")
-        plt.close()
+        ax.savefig('figures/' + title + ".png")
+        ax.close()
     else:
         plt.show()
+
+
 
 
 def disp_finder(L, x, y, periodic=True):

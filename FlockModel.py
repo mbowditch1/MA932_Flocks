@@ -164,7 +164,7 @@ class Model:
         FP.quiver_plot(i, self.L, self.agents, animate, title, ax)
 
     def spatial_distribution_plot(self,i=-1, frames = 1, save = False, ax = None , title = "Clustering Plot"):
-        FP.spatial_distribution_average(i, self.L, self.agents, frames = frames, ax = ax, periodic = self.periodic, save = save, title=title)
+        FP.Ripleys_L_plot(i, self.L, self.agents, frames = frames, ax = ax, periodic = self.periodic, save = save, title=title)
 
     def vel_fluc_plot(self, i=-1, ax=None):
         FP.vel_fluc_plot(i, self.L, self.agents, ax)
@@ -219,8 +219,18 @@ class Model:
     def corr(self, i=-1, num_bins=20):
         return FP.corr(i, self.L, self.agents, num_bins)
 
+    def correlation_length(self, i=-1, num_bins=20):
+        bins, correlation = FP.corr(i,self.L,self.agents,num_bins)
+        i = 0;
+        while correlation[i] > 0:
+            i+=1
+        return (bins[i]+bins[i-1])/2
+
     def susceptibility(self, num_bins=20):
         return FP.susceptibility(self.L, self.agents, self.t, num_bins)
+
+    def characteristic_flock_size(self, i=-1, frames=1, n=100):
+        return FP.characteristic_flock_size(i, self.L, self.agents, frames, periodic=self.periodic, n=n)
 
     def clustering(self, i=-1, eps=0.3, min_samples=5):
         # Use DBSCAN algorithm to assign points to groups
