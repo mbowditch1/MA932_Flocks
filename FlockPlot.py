@@ -30,15 +30,15 @@ def do_quiver(i, L, agents=None, positions=None, velocities=None, ax=None):
 
 
 # Call a quiver plot of agents
-def quiver_plot(i, L, agents, animate=False, title=None, ax=None):
+def quiver_plot(i, L, agents, save=False, title=None, ax=None):
     if ax:
         do_quiver(i, L, agents, ax=ax)
         return
-    plt.figure(figsize=(24, 16))
+    plt.figure(figsize=(12, 12))
     do_quiver(i, L, agents)
     if title:
         plt.title(title)
-    if animate:
+    if save:
         plt.savefig('data/' + str(i)+'.png')
         plt.close()
     else:
@@ -61,8 +61,8 @@ def cluster_plot(db, prey_pos, prey_vel, pred_pos, pred_vel, i, L, animate=False
     prey_colors = [colors[z] for z in labels]
     for z in range(len(pred_vel)):
         prey_colors.append([1, 0, 0, 1])
-    prey_pos = np.vstack((prey_pos, pred_pos))
-    prey_vel = np.vstack((prey_vel, pred_vel))
+    positions = np.vstack((prey_pos, pred_pos))
+    velocities = np.vstack((prey_vel, pred_vel))
     plt.quiver(
         positions[:, 0],
         positions[:, 1],

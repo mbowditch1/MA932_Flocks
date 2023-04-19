@@ -43,9 +43,9 @@ def cell_finder(pos, r_hat):
     return math.floor(pos[0]/r_hat), math.floor(pos[1]/r_hat) #int is the same as math.floor
 
 class Model:
-    def __init__(self, dt=0.2, prey_density=1, pred_density = 0.01, maxtime=60, prey_radius=1, pred_radius =1, L=15,
-                 noise=0, prey_phenotype=[1,0,0,0,0] ,pred_phenotype = [1,0,0], prey_angle=2*np.pi, pred_angle=2*np.pi,
-                bc="periodic", ic = "random", br=0.1, pred_speed = 1):
+    def __init__(self, dt=0.25, prey_density=1, pred_density = 0.01, maxtime=60, prey_radius=1, pred_radius =1, L=15,
+                 noise=0, prey_phenotype=[0, 1/2, 1, -5,0] ,pred_phenotype = [1,1,0,0,0,0], prey_angle=2*np.pi, pred_angle=7*np.pi/4,
+                bc="periodic", ic = "random", br=0.1, exc_r = 0.4, fixed_vel = True, pred_max = 1.25, prey_max = 1):
 
         self.dt, self.curr_time, self.maxtime, self.t = dt, 0, maxtime, [0]
         self.L = L
@@ -57,6 +57,7 @@ class Model:
         self.grid = [[Cell(i, j, self.r_hat) for i in range(self.num_cells)]
                      for j in range(self.num_cells)]
         self.agents = []
+        self.exc_r =  exc_r
         self.br = L*br
         self.bc = bc
         self.periodic = False
@@ -67,35 +68,56 @@ class Model:
 
             if ic == "school":
                 x = np.random.normal(L/3, L/10, 2)%L
-                v = np.array([0.0,1.0]) + np.random.normal(0,noise,2)
+                v = np.array([0.0,0.5]) + np.random.normal(0,noise,2)
+                if fixed_vel:
+                    v = prey_max * v/np.linalg.norm(v)
+                else:
+                    norm = np.linalg.norm(v)
+                    if norm > prey_max:
+                        v = prey_max * v/np.linalg.norm(v)
             else:
                 # Random initial position and normalised velocity
                 x = np.random.uniform(0, L, 2)
                 v = np.random.uniform(-1/2, 1/2, 2)
-                v = v/np.linalg.norm(v)
+                if fixed_vel:
+                    v = prey_max * v/np.linalg.norm(v)
+                else:
+                    norm = np.linalg.norm(v)
+                    if norm > prey_max:
+                        v = prey_max * v/np.linalg.norm(v)
 
             agent_i, agent_j = cell_finder(x, self.r_hat)
 
             # Add prey to cell
             self.grid[agent_i][agent_j].agents.append(
-                    Prey(pos=x, vel=v, parameters = prey_phenotype, bc=self.bc, noise = noise, br=self.br, r = self.prey_r, cone = self.prey_cone))
+                    Prey(pos=x, vel=v, parameters = prey_phenotype, bc=self.bc, noise = noise, br=self.br, exc_r = self.exc_r, r = self.prey_r, cone = self.prey_cone, fixed_vel = fixed_vel, max_vel = prey_max))
 
         for i in range(self.num_preds):
             if ic == "school":
                 x = np.random.normal(2*L/3, L/10, 2)%L
-                v = np.array([-1.0,0]) + np.random.normal(0,noise,2)
-                v = v/np.linalg.norm(v)
+                v = np.array([-0.5,0]) + np.random.normal(0,noise,2)
+                if fixed_vel:
+                    v = pred_max * v/np.linalg.norm(v)
+                else:
+                    norm = np.linalg.norm(v)
+                    if norm > pred_max:
+                        v = pred_max * v/np.linalg.norm(v)
             else:
                 x = np.random.uniform(0, L, 2)
                 v = np.random.uniform(-1/2, 1/2, 2)
-                v = v/np.linalg.norm(v)
+                if fixed_vel:
+                    v = pred_max * v/np.linalg.norm(v)
+                else:
+                    norm = np.linalg.norm(v)
+                    if norm > pred_max:
+                        v = pred_max * v/np.linalg.norm(v)
 
             # Find cell that prey is contained within
             agent_i = math.floor(x[0]/self.r_hat)
             agent_j = math.floor(x[1]/self.r_hat)
 
             self.grid[agent_i][agent_j].agents.append(Pred(
-                pos=x, vel=v, parameters = pred_phenotype, bc=self.bc, br = self.br, noise = noise, r = self.prey_r, cone = self.prey_cone, pred_speed = pred_speed))
+                pos=x, vel=v, parameters = pred_phenotype, bc=self.bc, br = self.br, noise = noise, r = self.prey_r, cone = self.prey_cone,  fixed_vel = fixed_vel, max_vel = prey_max))
 
     def run(self):
         while self.curr_time < self.maxtime:
@@ -256,7 +278,8 @@ class Model:
 
 class Agent:
     def __init__(self, pos=np.array([0, 0]), vel=[1, 1],
-                 noise=0.1, parameters=[0, 1, 0], bc="periodic", br=1, r = 1, cone = -1):
+                 noise=0.1, parameters=[0, 1, 0], bc="periodic", br=1, r = 1, cone = -1, fixed_vel = True, max_vel = 1):
+        self.fixed_vel = fixed_vel
         self.pos = [pos]
         self.vel = [vel]  # do scalar velocity
         self.noise = noise
@@ -268,20 +291,24 @@ class Agent:
         self.periodic = False
         if self.bc == "periodic":
             self.periodic = True
+        self.max_vel = max_vel
+        self.fixed_vel = fixed_vel
 
 
 class Pred(Agent):
     def __init__(self, pos=np.array([0, 0]), vel=[1, 1],
-                 noise=0.1, parameters=[1, 2, 0, 1, -1/2, 1/2], bc="periodic", br=1, r = 1, cone = -1, pred_speed = 1):
-        super().__init__(pos, vel, noise, parameters, bc, br, r, cone)
+                 noise=0.1, parameters=[1, 2, 0, 1, -1/2, 1/2], bc="periodic", br=1, r = 1, cone = -1, fixed_vel = True, max_vel = 1.2):
+        super().__init__(pos, vel, noise, parameters, bc, br, r, cone, fixed_vel, max_vel)
         self.type = "Predator"
-        self.pred_speed = pred_speed
 
     def update_pos(self, dt, prey_pos, prey_vel, pred_pos, pred_vel, L):
+        directions = np.zeros((2,7))
+
+        directions[:,0] = self.vel[-1]
 
         #find the other prey in our visions cone
-        pred_prey_attraction = np.zeros(2)
-        visible_prey = 0
+        preyVC_pos = []
+        preyVC_vel = []
 
         for i, x in enumerate(prey_pos):
             vector = disp_finder(L, x, self.pos[-1], self.periodic)
@@ -292,59 +319,66 @@ class Pred(Agent):
                 norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
 
                 if dot >= self.cone * norms:
-                    visible_prey += 1
-                    pred_prey_attraction += vector/d**3
+                    preyVC_pos.append(vector)
+                    preyVC_vel.append(prey_vel[i])
 
         # if there is other prey, calculate the directions to the centre and the alignment
-        if visible_prey > 0:
-            pred_prey_attraction = pred_prey_attraction/visible_prey
+        if len(preyVC_pos) > 0:
+            directions[:,1] = sum(preyVC_pos)/ (len(preyVC_pos) * self.r)
+            directions[:,2]= sum(preyVC_vel)/ len(preyVC_vel)
+            directions[:,3] = preyVC_pos[np.argmin([np.linalg.norm(disp_finder(L, x, self.pos[-1], self.periodic)) for x in preyVC_pos])]
+
         #find the pred in our visions clen(preyVC_pos) >one
 
-        visible_pred = 0
-        pred_alignment = np.zeros(2)
-        pred_pred_repulsion = np.zeros(2)
+        if self.parameters[4] or self.parameters[5]:
 
-        for i, x in enumerate(pred_pos):
-            vector = disp_finder(L, x, self.pos[-1], self.periodic)
-            d = np.linalg.norm(vector)
-            if d < self.r:
-                dot = np.dot(self.vel[-1], vector)
-                norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
+            predVC_pos = []
+            predVC_vel = []
 
-                if dot >= self.cone * norms:
-                    visible_pred += 1
-                    pred_pred_repulsion += vector/d**2
-                    pred_alignment += pred_vel[i]
+            for i, x in enumerate(pred_pos):
+                vector = disp_finder(L, x, self.pos[-1], self.periodic)
+                d = np.linalg.norm(vector)
+                if d < self.r:
+                    dot = np.dot(self.vel[-1], vector)
+                    norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
 
-        # if there is predators, calculate the directions to the centre and the alignment
-        if visible_pred > 0:
-            pred_pred_repulsion = pred_pred_repulsion / visible_pred
-            pred_alignment = pred_alignment/visible_pred
+                    if dot >= self.cone * norms:
+                        predVC_pos.append(vector)
+                        predVC_vel.append(pred_vel[i])
+
+            # if there is predators, calculate the directions to the centre and the alignment
+            if len(predVC_pos) > 0:
+                directions[:,4] = sum(predVC_pos)/ len(predVC_pos)
+                directions[:,5]= sum(predVC_vel)/ len(predVC_vel)
 
         # get the boundary condition forces
 
         if self.bc == "soft":
             # Get distance to boundary
-            bondary_force = soft_boundary(self.pos[-1][0], self.pos[-1][1], L, self.br)
-        else:
-            boundary_force = np.zeros(2)
+            directions[:,6] = soft_boundary(self.pos[-1][0], self.pos[-1][1], L, self.br)
 
         new_vel = np.zeros(2)
-        new_vel += 3 * self.vel[-1]
-        new_vel = self.parameters[0] * pred_prey_attraction
-        new_vel += self.parameters[1] * pred_alignment
-        new_vel -= self.parameters[2] * pred_pred_repulsion
+        for i, value in enumerate(self.parameters):
+            new_vel += value * directions[:,i]
 
-        new_vel += np.linalg.norm(new_vel) * boundary_force
+        new_vel += np.linalg.norm(self.parameters, ord=1) * directions[:,-1]
 
         if not np.linalg.norm(new_vel):
             new_vel = self.vel[-1]
 
-        new_vel = new_vel/np.linalg.norm(new_vel)
+        if not self.fixed_vel:
+            norm = np.linalg.norm(new_vel)
+            if norm > self.max_vel:
+                new_vel = self.max_vel* new_vel/np.linalg.norm(new_vel)
+            new_vel += np.random.normal(0,self.noise,2)
+            norm = np.linalg.norm(new_vel)
+            if norm >self.max_vel:
+                new_vel = self.max_vel * new_vel/np.linalg.norm(new_vel)
+        else:
+            new_vel = self.max_vel * new_vel/np.linalg.norm(new_vel)
+            new_vel += np.random.normal(0,self.noise,2)
+            new_vel = self.max_vel* new_vel/np.linalg.norm(new_vel)
 
-        new_vel += np.random.normal(0,self.noise,2)
-
-        new_vel = self.pred_speed * new_vel/np.linalg.norm(new_vel)
 
         self.vel.append(new_vel)
 
@@ -353,17 +387,18 @@ class Pred(Agent):
 
 class Prey(Agent):
     def __init__(self, pos=np.array([0, 0]), vel=[1, 1],
-                 noise=0.1, parameters=np.array([1,-1,3,-5,-5,0]), bc="periodic", br=0.1, r = 1, cone = -1):
-        super().__init__(pos, vel, noise, parameters, bc, br, r, cone)
+                 noise=0.1, parameters=np.array([1,-1,3,-5,-5,0]), bc="periodic", br=0.1, r = 1, cone = -1, exc_r = 0.4, fixed_vel = True, max_vel = 1):
+        super().__init__(pos, vel, noise, parameters, bc, br, r, cone, fixed_vel, max_vel)
         self.type = "Prey"
+        self.exc_r = exc_r
 
     def update_pos(self, dt, prey_pos, prey_vel, pred_pos, pred_vel, L):
+        directions = np.zeros((2,6))
+        directions[:,0] = self.vel[-1]
 
         #find the other prey in our visions cone
-        prey_alignment = np.zeros(2)
-        prey_prey_attraction = np.zeros(2)
-        prey_prey_repulsion = np.zeros(2)
-        visible_prey = 0
+        preyVC_pos = []
+        preyVC_vel = []
 
         for i, x in enumerate(prey_pos):
             vector = disp_finder(L, x, self.pos[-1], self.periodic)
@@ -374,62 +409,63 @@ class Prey(Agent):
                 norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
 
                 if dot >= self.cone * norms:
-                    visible_prey += 1
-                    prey_alignment += prey_vel[i]
-                    prey_prey_attraction += vector
-                    prey_prey_repulsion += vector/d**2
+                    preyVC_pos.append(vector*(-1*np.power(np.log(d/self.r)/np.log(self.exc_r/self.r),10) + 1))
+                    preyVC_vel.append(prey_vel[i])
 
         # if there is other prey, calculate the directions to the centre and the alignment
-        if visible_prey > 0:
-            prey_alignment = prey_alignment/visible_prey
-            prey_prey_attraction = prey_prey_attraction/visible_prey
-            prey_prey_repulsion = prey_prey_repulsion/visible_prey
-        #find the pred in our visions clen(preyVC_pos) >one
+        if len(preyVC_pos) > 0:
+            directions[:,1] = sum(preyVC_pos)/(len(preyVC_pos)*self.r)
+            directions[:,2] = sum(preyVC_vel)/ len(preyVC_vel)
 
-        visible_pred = 0
-        pred_alignment = np.zeros(2)
-        prey_pred_repulsion = np.zeros(2)
+        #find the pred in our visions cone
 
-        for i, x in enumerate(pred_pos):
-            vector = disp_finder(L, x, self.pos[-1], self.periodic)
-            d = np.linalg.norm(vector)
-            if d < self.r:
-                dot = np.dot(self.vel[-1], vector)
-                norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
+        if self.parameters[3] or self.parameters[4]:
 
-                if dot >= self.cone * norms:
-                    visible_pred += 1
-                    prey_pred_repulsion += vector/d**2
-                    pred_alignment += pred_vel[i]
+            predVC_pos = []
+            predVC_vel = []
 
-        # if there is predators, calculate the directions to the centre and the alignment
-        if visible_pred > 0:
-            prey_pred_repulsion = prey_pred_repulsion / visible_pred
-            pred_alignment = pred_alignment/visible_pred
+            for i, x in enumerate(pred_pos):
+                vector = disp_finder(L, x, self.pos[-1], self.periodic)
+                d = np.linalg.norm(vector)
+                if d < self.r:
+                    dot = np.dot(self.vel[-1], vector)
+                    norms = np.linalg.norm(self.vel[-1]) * np.linalg.norm(vector)
+                    if dot >= self.cone * norms:
+                        predVC_pos.append(vector)
+                        predVC_vel.append(pred_vel[i])
+
+            # if there is predators, calculate the directions to the centre and the alignment
+            if len(predVC_pos) > 0:
+                directions[:,3] = sum(predVC_pos)/ len(predVC_pos)
+                directions[:,4]= sum(predVC_vel)/ len(predVC_vel)
+
 
         # get the boundary condition forces
 
         if self.bc == "soft":
-            # Get distance to boundary
-            bondary_force = soft_boundary(self.pos[-1][0], self.pos[-1][1], L, self.br)
-        else:
-            boundary_force = np.zeros(2)
+            directions[:,5] = soft_boundary(self.pos[-1][0], self.pos[-1][1], L, self.br)
 
-        new_vel = self.parameters[0] * prey_alignment
-        new_vel += self.parameters[1] * prey_prey_attraction
-        new_vel -= self.parameters[2] * prey_prey_repulsion
-        new_vel -= self.parameters[3] * pred_alignment
-        new_vel -= self.parameters[4] * prey_prey_repulsion
-        new_vel += np.linalg.norm(new_vel) * boundary_force
+        new_vel = np.zeros(2)
+        for i, value in enumerate(self.parameters):
+            new_vel += value * directions[:,i]
+
+        new_vel += np.linalg.norm(self.parameters, ord=1) * directions[:,-1]
 
         if not np.linalg.norm(new_vel):
             new_vel = self.vel[-1]
 
-        new_vel = new_vel/np.linalg.norm(new_vel)
-
-        new_vel += np.random.normal(0,self.noise,2)
-
-        new_vel = new_vel/np.linalg.norm(new_vel)
+        if not self.fixed_vel:
+            norm = np.linalg.norm(new_vel)
+            if norm > self.max_vel:
+                new_vel = self.max_vel * new_vel/np.linalg.norm(new_vel)
+            new_vel += np.random.normal(0,self.noise,2)
+            norm = np.linalg.norm(new_vel)
+            if norm > self.max_vel:
+                new_vel = self.max_vel * new_vel/np.linalg.norm(new_vel)
+        else:
+            new_vel = self.max_vel * new_vel/np.linalg.norm(new_vel)
+            new_vel += np.random.normal(0,self.noise,2)
+            new_vel = self.max_vel * new_vel/np.linalg.norm(new_vel)
 
         self.vel.append(new_vel)
 
