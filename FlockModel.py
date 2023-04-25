@@ -26,9 +26,18 @@ def soft_boundary(x, y, L, r):
     elif y > L-r:
         vy = -1*math.cos(((L-y)*math.pi)/(2*r))
     if vx or vy:
+        if np.linalg.norm([vx,vy]) > 1:
+            return np.array([vx,vy])/np.linalg.norm([vx,vy])
         return np.array([vx,vy])
     else:
         return np.zeros(2)
+
+def new_soft_boundary(x, y, L, r):
+    vx = vy = 0
+    if (x-L/2)**2 + (y-L/2)**2 > (L/2-r)**2:
+        vector_to_origin = np.array([L/2-x,L/2-y])
+        return vector_to_origin/np.linalg.norm(vector_to_origin)
+    return np.zeros(2)
 
 
 class Cell:
@@ -43,13 +52,13 @@ def cell_finder(pos, r_hat):
     return math.floor(pos[0]/r_hat), math.floor(pos[1]/r_hat) #int is the same as math.floor
 
 class Model:
-    def __init__(self, dt=0.2, prey_density=1, pred_density = 0.01, maxtime=60, prey_radius=1, pred_radius =1, L=15,
+    def __init__(self, dt=0.25, num_prey=10, num_pred = 1, maxtime=75, prey_radius=2, pred_radius =5, L=10,
                  noise=0, prey_phenotype=[1,0,0,0,0] ,pred_phenotype = [1,0,0], prey_angle=2*np.pi, pred_angle=2*np.pi,
                 bc="periodic", ic = "random", br=0.1, pred_speed = 1):
 
         self.dt, self.curr_time, self.maxtime, self.t = dt, 0, maxtime, [0]
         self.L = L
-        self.num_prey, self.num_preds = int(L**2 * prey_density), int(L**2 * pred_density)
+        self.num_prey, self.num_preds = num_prey, num_pred
         self.prey_r, self.pred_r, self.prey_cone, self.pred_cone = prey_radius, pred_radius, np.cos(prey_angle/2), np.cos(pred_angle/2)
         self.num_cells = math.floor(self.L/self.prey_r)
         self.pred_cells = math.ceil(self.pred_r/self.prey_r)
@@ -64,15 +73,13 @@ class Model:
             self.periodic = True
 
         for i in range(self.num_prey):
-
             if ic == "school":
                 x = np.random.normal(L/3, L/10, 2)%L
                 v = np.array([0.0,1.0]) + np.random.normal(0,noise,2)
             else:
                 # Random initial position and normalised velocity
-                x = np.random.uniform(0, L, 2)
-                v = np.random.uniform(-1/2, 1/2, 2)
-                v = v/np.linalg.norm(v)
+                x = np.random.uniform(self.br, L-self.br, 2)
+                v = np.random.uniform(-1, 1, 2)
 
             agent_i, agent_j = cell_finder(x, self.r_hat)
 
@@ -82,13 +89,12 @@ class Model:
 
         for i in range(self.num_preds):
             if ic == "school":
-                x = np.random.normal(2*L/3, L/10, 2)%L
+                x = np.random.normal(2*L/3, L/5, 2)%L
                 v = np.array([-1.0,0]) + np.random.normal(0,noise,2)
                 v = v/np.linalg.norm(v)
             else:
-                x = np.random.uniform(0, L, 2)
-                v = np.random.uniform(-1/2, 1/2, 2)
-                v = v/np.linalg.norm(v)
+                x = np.random.uniform(br, L-br, 2)
+                v = np.random.uniform(-1, 1, 2)
 
             # Find cell that prey is contained within
             agent_i = math.floor(x[0]/self.r_hat)
@@ -143,8 +149,14 @@ class Model:
                                             pred_vel.append(a_2.vel[index])
 
                     a.update_pos(self.dt, prey_pos, prey_vel, pred_pos, pred_vel, self.L)
-
-                    a.pos[-1] = a.pos[-1] % self.L  # add other BC later
+                    if self.periodic:
+                        a.pos[-1] = a.pos[-1] % self.L  # add other BC later
+                    if self.bc == "soft":
+                        x = a.pos[-1][0]
+                        y = a.pos[-1][1]
+                        if abs(x+y-self.L) + abs(x-y) > self.L:
+                            print ("An agent has left the grid")
+                            a.pos[-1] = a.pos[-1] % self.L
 
         for i in range(self.num_cells):
             for j in range(self.num_cells):
@@ -163,8 +175,8 @@ class Model:
     def quiver_plot(self, i=-1, animate=False, title=None, ax=None):
         FP.quiver_plot(i, self.L, self.agents, animate, title, ax)
 
-    def spatial_distribution_plot(self,i=-1, frames = 1, save = False, ax = None , title = "Clustering Plot"):
-        FP.Ripleys_L_plot(i, self.L, self.agents, frames = frames, ax = ax, periodic = self.periodic, save = save, title=title)
+    def clustering(self,i=-1, frames = 1, save = False, ax = None , title = "Clustering Plot", n = 50, flock_size = True, exclusion_radius= True):
+        return FP.clustering(i, self.L, self.agents, frames = frames, ax = ax, periodic = self.periodic, save = save, title=title, n = n, prey_radius = self.prey_r)
 
     def vel_fluc_plot(self, i=-1, ax=None):
         FP.vel_fluc_plot(i, self.L, self.agents, ax)
@@ -181,25 +193,25 @@ class Model:
     def sus_plot(self, num_bins=20, ax=None):
         FP.sus_plot(self.L, self.agents, self.t, num_bins, ax)
 
-    def groups_plot(self, eps=0.3, min_samples=5, ax=None):
+    def number_of_groups_plot(self, min_samples=5, ax=None):
         num_groups = np.zeros(len(self.t))
         for i in range(len(num_groups)):
-            db = self.clustering(i=i, eps=eps, min_samples=min_samples)[0]
+            db = self.grouping(i=i, eps=self.pred_r, min_samples=min_samples)[0]
             labels = db.labels_
             num_groups[i] = len(set(labels)) - (1 if -1 in labels else 0)
         ax = ax or plt.gca()
         ax.plot(self.t,num_groups)
 
-    def cluster_plot(self, i=-1, eps=0.3, min_samples=5, animate=False):
-        db, prey_pos, prey_vel, pred_pos, pred_vel = self.clustering(i=i, eps=eps, min_samples=min_samples)
-        FP.cluster_plot(db, prey_pos, prey_vel, pred_pos, pred_vel, i=i, animate=animate, L=self.L)
+    def group_plot(self, i=-1, min_samples=5, animate=False):
+        db, prey_pos, prey_vel, pred_pos, pred_vel = self.grouping(i=i, eps=self.pred_r, min_samples=min_samples)
+        FP.group_plot(db, prey_pos, prey_vel, pred_pos, pred_vel, i=i, animate=animate, L=self.L)
 
-    def animate_cluster_plot(self, eps=0.3, min_samples=5, title="cluster_gif"):
+    def animate_group_plot(self, min_samples=5, title="group_gif"):
         entries = os.listdir('data/')
         for filename in entries:
             os.remove('data/' + filename)
         for i in range(len(self.agents[0].pos)):
-            self.cluster_plot(i=i, eps=eps, min_samples=min_samples, animate=True)
+            self.group_plot(i=i, eps=self.pred_r, min_samples=min_samples, animate=True)
         entries = os.listdir('data/')
         entries = [int(x[:-4]) for x in entries]
         entries.sort()
@@ -229,10 +241,13 @@ class Model:
     def susceptibility(self, num_bins=20):
         return FP.susceptibility(self.L, self.agents, self.t, num_bins)
 
-    def characteristic_flock_size(self, i=-1, frames=1, n=100):
+    def characteristic_flock_size(self, i=-1, frames=1, n=20):
         return FP.characteristic_flock_size(i, self.L, self.agents, frames, periodic=self.periodic, n=n)
 
-    def clustering(self, i=-1, eps=0.3, min_samples=5):
+    def characteristic_exclusion_radius(self, i=-1, frames=1, n=100):
+        return FP.characteristic_exclusion_radius(i, self.L, self.agents, frames, periodic=self.periodic, n=n)
+
+    def grouping(self, i=-1, min_samples=5):
         # Use DBSCAN algorithm to assign points to groups
         prey_pos = []
         prey_vel = []
@@ -246,7 +261,7 @@ class Model:
                 pred_pos.append(a.pos[i])
                 pred_vel.append(a.vel[i])
 
-        db = DBSCAN(eps=1, min_samples=5).fit(prey_pos)
+        db = DBSCAN(eps=self.pred_r, min_samples=5).fit(prey_pos)
 
         return db, prey_pos, prey_vel, pred_pos, pred_vel
 
@@ -312,6 +327,7 @@ class Pred(Agent):
 
         visible_pred = 0
         pred_alignment = np.zeros(2)
+        pred_pred_attraction = np.zeros(2)
         pred_pred_repulsion = np.zeros(2)
 
         for i, x in enumerate(pred_pos):
@@ -323,11 +339,13 @@ class Pred(Agent):
 
                 if dot >= self.cone * norms:
                     visible_pred += 1
+                    pred_pred_attraction += vector
                     pred_pred_repulsion += vector/d**2
                     pred_alignment += pred_vel[i]
 
         # if there is predators, calculate the directions to the centre and the alignment
         if visible_pred > 0:
+            pred_pred_attraction = pred_pred_attraction / visible_pred
             pred_pred_repulsion = pred_pred_repulsion / visible_pred
             pred_alignment = pred_alignment/visible_pred
 
@@ -335,26 +353,28 @@ class Pred(Agent):
 
         if self.bc == "soft":
             # Get distance to boundary
-            bondary_force = soft_boundary(self.pos[-1][0], self.pos[-1][1], L, self.br)
+            boundary_force = soft_boundary(self.pos[-1][0], self.pos[-1][1], L, self.br)
         else:
             boundary_force = np.zeros(2)
 
         new_vel = np.zeros(2)
-        new_vel += 3 * self.vel[-1]
-        new_vel += self.parameters[0] * pred_prey_attraction
-        new_vel -= self.parameters[1] * pred_pred_repulsion
-        new_vel += self.parameters[2] * pred_alignment
+        new_vel += self.vel[-1]
 
-        new_vel += np.linalg.norm(new_vel) * boundary_force
+        acceleration = np.zeros(2)
+        acceleration += self.parameters[0] * pred_prey_attraction
+        acceleration += self.parameters[1] * pred_pred_attraction
+        acceleration -= self.parameters[2] * pred_pred_repulsion
+        acceleration += self.parameters[3] * pred_alignment#
+        acceleration += np.random.normal(0,self.noise,2)
+        acceleration += max(1, np.linalg.norm(acceleration)) * boundary_force
 
-        if not np.linalg.norm(new_vel):
-            new_vel = self.vel[-1]
+        if np.linalg.norm(acceleration) > 1:
+            acceleration = acceleration/np.linalg.norm(acceleration)
 
-        new_vel = new_vel/np.linalg.norm(new_vel)
+        new_vel += dt * acceleration
 
-        new_vel += np.random.normal(0,self.noise,2)
-
-        new_vel = self.pred_speed * new_vel/np.linalg.norm(new_vel)
+        if np.linalg.norm(new_vel) > 1:
+            new_vel = self.pred_speed * new_vel/np.linalg.norm(new_vel)
 
         self.vel.append(new_vel)
 
@@ -421,25 +441,29 @@ class Prey(Agent):
 
         if self.bc == "soft":
             # Get distance to boundary
-            bondary_force = soft_boundary(self.pos[-1][0], self.pos[-1][1], L, self.br)
+            boundary_force = soft_boundary(self.pos[-1][0], self.pos[-1][1], L, self.br)
         else:
             boundary_force = np.zeros(2)
 
-        new_vel = self.parameters[0] * prey_alignment
-        new_vel += self.parameters[1] * prey_prey_attraction
-        new_vel -= self.parameters[2] * prey_prey_repulsion
-        new_vel -= self.parameters[3] * prey_pred_repulsion
-        new_vel -= self.parameters[4] * pred_alignment
-        new_vel += np.linalg.norm(new_vel) * boundary_force
+        new_vel = np.zeros(2)
+        new_vel += self.vel[-1]
+        acceleration = np.zeros(2)
+        acceleration = self.parameters[0] * prey_alignment
+        acceleration += self.parameters[1] * prey_prey_attraction
+        acceleration -= self.parameters[2] * prey_prey_repulsion
+        acceleration -= self.parameters[3] * prey_pred_repulsion
+        acceleration -= self.parameters[4] * pred_alignment
+        acceleration += np.random.normal(0,self.noise,2)
 
-        if not np.linalg.norm(new_vel):
-            new_vel = self.vel[-1]
+        acceleration += max(1, np.linalg.norm(acceleration)) * boundary_force
 
-        new_vel = new_vel/np.linalg.norm(new_vel)
+        if np.linalg.norm(acceleration) > 1:
+            acceleration = acceleration/np.linalg.norm(acceleration)
 
-        new_vel += np.random.normal(0,self.noise,2)
+        new_vel += dt * acceleration
 
-        new_vel = new_vel/np.linalg.norm(new_vel)
+        if np.linalg.norm(new_vel) > 1:
+            new_vel = new_vel/np.linalg.norm(new_vel)
 
         self.vel.append(new_vel)
 
