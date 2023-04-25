@@ -26,8 +26,6 @@ def soft_boundary(x, y, L, r):
     elif y > L-r:
         vy = -1*math.cos(((L-y)*math.pi)/(2*r))
     if vx or vy:
-        if np.linalg.norm([vx,vy]) > 1:
-            return np.array([vx,vy])/np.linalg.norm([vx,vy])
         return np.array([vx,vy])
     else:
         return np.zeros(2)
@@ -76,10 +74,12 @@ class Model:
             if ic == "school":
                 x = np.random.normal(L/3, L/10, 2)%L
                 v = np.array([0.0,1.0]) + np.random.normal(0,noise,2)
+                v = v/np.linalg.norm(v)
             else:
                 # Random initial position and normalised velocity
                 x = np.random.uniform(self.br, L-self.br, 2)
                 v = np.random.uniform(-1, 1, 2)
+                v = v/np.linalg.norm(v)
 
             agent_i, agent_j = cell_finder(x, self.r_hat)
 
@@ -95,6 +95,7 @@ class Model:
             else:
                 x = np.random.uniform(br, L-br, 2)
                 v = np.random.uniform(-1, 1, 2)
+                v = v/np.linalg.norm(v)
 
             # Find cell that prey is contained within
             agent_i = math.floor(x[0]/self.r_hat)
@@ -181,8 +182,11 @@ class Model:
     def vel_fluc_plot(self, i=-1, ax=None):
         FP.vel_fluc_plot(i, self.L, self.agents, ax)
 
-    def order_plot(self, save=False, title="order_plot", ax=None):
+    def order_plot(self, save=False, title="Order Plot", ax=None):
         FP.order_plot(self.agents, self.t, save=save, title=title, ax=ax)
+
+    def vel_plot(self, save=False, title="Velocity Plot", ax=None):
+        FP.vel_plot(self.agents, self.t, save=save, title=title, ax=ax)
 
     def corr_plot(self, i=-1, num_bins=20, ax = None):
         FP.corr_plot(i, self.L, self.agents, num_bins, ax)
@@ -437,6 +441,13 @@ class Prey(Agent):
             prey_pred_repulsion = prey_pred_repulsion / visible_pred
             pred_alignment = pred_alignment/visible_pred
 
+        if np.linalg.norm(pred_alignment):
+            pred_alignment = np.flip(pred_alignment)
+
+            pred_alignment[0] = -pred_alignment[0]
+            if np.dot(self.vel[-1], pred_alignment) < 0:
+                pred_alignment = -pred_alignment
+
         # get the boundary condition forces
 
         if self.bc == "soft":
@@ -452,7 +463,7 @@ class Prey(Agent):
         acceleration += self.parameters[1] * prey_prey_attraction
         acceleration -= self.parameters[2] * prey_prey_repulsion
         acceleration -= self.parameters[3] * prey_pred_repulsion
-        acceleration -= self.parameters[4] * pred_alignment
+        acceleration += self.parameters[4] * pred_alignment
         acceleration += np.random.normal(0,self.noise,2)
 
         acceleration += max(1, np.linalg.norm(acceleration)) * boundary_force

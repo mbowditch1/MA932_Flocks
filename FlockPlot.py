@@ -167,7 +167,7 @@ def disp_finder(L, x, y, periodic=True):
 
 # Need for order plot
 def ord(agents, i=-1):
-    velocities = [x.vel[i] for x in agents if x.type != "Predator"]
+    velocities = [x.vel[i]/np.linalg.norm(x.vel[i]) for x in agents if x.type != "Predator"]
     return np.linalg.norm(np.mean(velocities, axis=0))
 
 # Order plot
@@ -178,10 +178,37 @@ def order_plot(agents, ts, save=False, title="Order Plot", ax = None):
         return
 
     plt.figure()
+    plt.figure(figsize=(24, 16))
     plt.plot(ts, orders)
     plt.title(title)
     plt.xlabel("Time")
     plt.ylabel("Order")
+    plt.ylim(0,1)
+    if save:
+        plt.savefig('figures/' + title + ".png")
+        plt.close()
+    else:
+        plt.show()
+
+def vel(agents, i=-1):
+    velocities = [np.linalg.norm(x.vel[i]) for x in agents if x.type != "Predator"]
+    return np.mean(velocities, axis=0)
+
+# Order plot
+def vel_plot(agents, ts, save=False, title="Velocity Plot", ax = None):
+    velocities = [vel(agents, i) for i in range(len(ts))]
+    if ax:
+        ax.plot(ts,velocities)
+        return
+
+
+
+    plt.figure()
+    plt.figure(figsize=(24, 16))
+    plt.plot(ts, velocities)
+    plt.title(title)
+    plt.xlabel("Time")
+    plt.ylabel("Average Velocity")
     plt.ylim(0,1)
     if save:
         plt.savefig('figures/' + title + ".png")
