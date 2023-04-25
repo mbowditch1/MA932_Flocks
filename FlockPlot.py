@@ -24,7 +24,7 @@ def do_quiver(i, L, agents=None, positions=None, velocities=None, ax=None):
         cols = ['r' if x.type == "Predator" else "k" for x in agents]
 
     ax = ax or plt.gca()
-    ax.quiver(xs, ys, us, vs, color=cols)
+    ax.quiver(xs, ys, us, vs, color=cols, scale = L)
     ax.set_xlim([0, L])
     ax.set_ylim([0, L])
 
@@ -45,10 +45,10 @@ def quiver_plot(i, L, agents, save=False, title=None, ax=None):
         plt.show()
 
 
-def cluster_plot(db, prey_pos, prey_vel, pred_pos, pred_vel, i, L, animate=False):
+def group_plot(db, prey_pos, prey_vel, pred_pos, pred_vel, i, L, animate=False):
     labels = db.labels_
-    # Number of clusters in labels, ignoring noise if present.
-    n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
+    # Number of groups in labels, ignoring noise if present.
+    n_groups_ = len(set(labels)) - (1 if -1 in labels else 0)
     unique_labels = set(labels)
     core_samples_mask = np.zeros_like(labels, dtype=bool)
     core_samples_mask[db.core_sample_indices_] = True
@@ -72,7 +72,7 @@ def cluster_plot(db, prey_pos, prey_vel, pred_pos, pred_vel, i, L, animate=False
         headaxislength = 0.1
     )
 
-    plt.title(f"Estimated number of clusters: {n_clusters_}")
+    plt.title(f"Estimated number of groups: {n_groups_}")
     plt.xlim((0, L))
     plt.ylim((0, L))
     if animate:
@@ -109,16 +109,14 @@ def vel_fluc_plot(i, L, agents, ax = None):
     avg_vel = np.mean(prey_agents_vel, axis=0)
     denom = math.sqrt(sum([np.linalg.norm(v-avg_vel)**2 for v in prey_agents_vel])/len(prey_agents_vel))
     dim_vel = [(v-avg_vel)/denom for v in prey_agents_vel]
-
     if ax:
         do_quiver(i, L, agents, ax=ax)
         return
-
     plt.figure()
     do_quiver(i, L, None, positions, dim_vel)
     plt.show()
 
-def spatial_distribution(i, L, agents, periodic=True, n = 100):
+def spatial_distribution(i, L, agents, periodic=True, n=20):
     rs = np.linspace(0,L,n)
     K = np.zeros(n)
     prey = [x for x in agents if x.type != "Predator"]  # Fast
@@ -134,21 +132,18 @@ def spatial_distribution(i, L, agents, periodic=True, n = 100):
     K = np.power(K, 1/2) - rs
     return K
 
-def spatial_distribution_average(i, L, agents,  frames = 1, periodic=True, n=100):
+def spatial_distribution_average(i, L, agents,  frames = 1, periodic=True, n=20, prey_radius = 1):
     rs = np.linspace(0,L,n)
     K = np.zeros(n)
     for j in range(frames):
-        K += spatial_distribution(i-j, L, agents)
-
+        K += spatial_distribution(i-j, L, agents, n=n)
     K = K/frames
-    return rs, K
+    flock_size = rs[np.argmax(K)]
+    exclusion_radius = rs[np.argmin(K[:math.ceil(prey_radius/(L/n))])]
+    return rs, K, flock_size, exclusion_radius
 
-def characteristic_flock_size(i, L, agents, frames=1, periodic=True, n=100):
-    rs, K = spatial_distribution_average(i,L,agents,frames,periodic,n)
-    return rs[np.argmax(K)]
-
-def Ripleys_L_plot(i, L, agents, frames=1, periodic=True, n=100, ax = None, save = False, title = "Clustering Plot"):
-    rs, K = spatial_distribution_average(i,L,agents,frames,periodic,n)
+def clustering(i, L, agents, frames=1, periodic=True, n=20, ax = None, save = False, title = "Clustering Plot", prey_radius = 1):
+    rs, K, flock_size, exclusion_radius  = spatial_distribution_average(i,L,agents,frames,periodic,n, prey_radius)
     ax = ax or plt.gca()
     ax.plot(rs, K)
     ax.set_xticks = [rs[np.argmax(K)]]
@@ -158,13 +153,11 @@ def Ripleys_L_plot(i, L, agents, frames=1, periodic=True, n=100, ax = None, save
     ax.set_ylim(1.05*min(K), -1.05*min(K))
     ax.set_title(title)
     if save:
-        ax.savefig('figures/' + title + ".png")
-        ax.close()
+        ax.figure.savefig('figures/' + title + ".png")
+        plt.close()
     else:
         plt.show()
-
-
-
+    return flock_size, exclusion_radius
 
 def disp_finder(L, x, y, periodic=True):
     if periodic:
@@ -177,11 +170,9 @@ def ord(agents, i=-1):
     velocities = [x.vel[i] for x in agents if x.type != "Predator"]
     return np.linalg.norm(np.mean(velocities, axis=0))
 
-
 # Order plot
 def order_plot(agents, ts, save=False, title="Order Plot", ax = None):
     orders = [ord(agents, i) for i in range(len(ts))]
-
     if ax:
         ax.plot(ts,orders)
         return
